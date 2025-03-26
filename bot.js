@@ -3,6 +3,7 @@
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import https from "https";
+import http from "http";
 dotenv.config();
 
 const RPC_URL = process.env.POLYGON_URL;
@@ -166,3 +167,8 @@ async function loop() {
   }
 }
 loop();
+
+http.createServer((req, res) => {
+  res.writeHead(200, { "Content-Type": "text/plain" });
+  res.end("🤖 XiBot v7 actif. Tout fonctionne !");
+}).listen(process.env.PORT || 3000);
