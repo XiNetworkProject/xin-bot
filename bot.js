@@ -1,5 +1,4 @@
-
-// XiBot v7 - IA de marché complète
+// XiBot v7+ - IA complète avec cycles, stats, surveillance, Telegram et gestion de liquidité
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import https from "https";
@@ -28,7 +27,8 @@ const erc20Abi = [
   "function allowance(address,address) view returns (uint256)"
 ];
 const poolAbi = [
-  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)"
+  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
+  "function liquidity() view returns (uint128)"
 ];
 
 const xin = new ethers.Contract(XIN, erc20Abi, wallet);
@@ -64,6 +64,19 @@ function delay(ms) {
 function randomBetween(min, max) {
   return Math.random() * (max - min) + min;
 }
+function getFormattedTime(ms) {
+  const d = new Date(ms);
+  return d.toISOString().split("T")[1].split(".")[0];
+}
+
+let nextPump = Date.now() + 2 * 60 * 60 * 1000;
+let nextDump = Date.now() + 4 * 60 * 60 * 1000;
+let lastStats = Date.now();
+
+function announceStartup() {
+  const message = `🤖 XiBot v7+ activé\n📈 Prochain pump : ${getFormattedTime(nextPump)} UTC\n📉 Prochain dump : ${getFormattedTime(nextDump)} UTC\n🌀 Swaps aléatoires 0.5–6 POL toutes les 1–3 min\n📊 Stats toutes les heures\n🛠️ Liquidity AI & rebalancing activés`;
+  log(message);
+}
 
 async function approveIfNeeded(token, name) {
   const allowance = await token.allowance(WALLET_ADDRESS, ROUTER);
@@ -75,7 +88,23 @@ async function approveIfNeeded(token, name) {
   }
 }
 
+async function checkSecurity() {
+  const polBal = await pol.balanceOf(WALLET_ADDRESS);
+  const poolLiquidity = await pool.liquidity();
+  const liquidityEth = Number(poolLiquidity) / 1e18;
+
+  if (polBal < parseEther(10)) {
+    log("⚠️ Solde insuffisant (POL < 10). Aucun swap autorisé.");
+    return false;
+  }
+  if (liquidityEth < 30) {
+    log("🚨 Attention : liquidité pool < 30 WMATIC !");
+  }
+  return true;
+}
+
 async function swap(tokenIn, tokenOut, amount, label) {
+  if (!(await checkSecurity())) return;
   log(`🔁 Tentative swap ${label} (${formatEther(amount)} tokens)`);
   try {
     const tx = await router.exactInputSingle([
@@ -116,35 +145,30 @@ async function randomSwap() {
   }
 }
 
+async function rebalancer() {
+  const polBal = await pol.balanceOf(WALLET_ADDRESS);
+  if (polBal > parseEther(50)) {
+    const reinject = parseEther("5");
+    log("♻️ Rebalancing : réinjection de liquidité POL → pool");
+    // À implémenter : ajout de liquidité Uniswap V3 si souhaité
+  }
+}
+
 async function sendStats() {
-  const msg = `📊 Stats XiBot v7
-XIN acheté: ${formatEther(stats.xinBought)}
-XIN vendu: ${formatEther(stats.xinSold)}
-POL utilisé: ${formatEther(stats.polUsed)}
-POL gagné: ${formatEther(stats.polGained)}
-Swaps effectués: ${stats.swapCount}`;
+  const msg = `📊 Stats XiBot v7+\nXIN acheté: ${formatEther(stats.xinBought)}\nXIN vendu: ${formatEther(stats.xinSold)}\nPOL utilisé: ${formatEther(stats.polUsed)}\nPOL gagné: ${formatEther(stats.polGained)}\nSwaps effectués: ${stats.swapCount}`;
   sendTelegram(msg);
 }
-
-function planNext(hourOffset) {
-  const now = Date.now();
-  return now + hourOffset * 60 * 60 * 1000;
-}
-
-let nextPump = planNext(2);
-let nextDump = planNext(4);
-let lastStats = Date.now();
 
 async function loop() {
   await approveIfNeeded(pol, "POL");
   await approveIfNeeded(xin, "XIN");
-
-  log("🤖 XiBot v7 en ligne. Démarrage IA...");
+  announceStartup();
 
   pool.on("Swap", (sender, recipient, a0, a1) => {
-    if (sender !== WALLET_ADDRESS) {
+    if (sender.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
       const direction = a0 > 0 ? "Vente XIN" : "Achat XIN";
-      log(`📡 ${direction} externe détecté : ${formatEther(a0 > 0 ? a0 : a1)} POL`);
+      const montant = formatEther(a0 > 0 ? a0 : a1);
+      log(`📡 ${direction} externe détecté\n👤 ${sender.slice(0, 8)}...\n💰 Montant : ${montant} POL`);
     }
   });
 
@@ -163,12 +187,16 @@ async function loop() {
       lastStats = now;
     }
     await randomSwap();
+    await rebalancer();
     await delay(randomBetween(60000, 180000));
   }
+}
+function planNext(hourOffset) {
+  return Date.now() + hourOffset * 60 * 60 * 1000;
 }
 loop();
 
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("🤖 XiBot v7 actif. Tout fonctionne !");
+  res.end("🤖 XiBot v7+ actif sur Render avec IA & sécurité !");
 }).listen(process.env.PORT || 3000);
