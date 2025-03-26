@@ -1,4 +1,4 @@
-// XiBot v7+ - IA complète avec cycles, stats, surveillance, Telegram et gestion de liquidité
+// XiBot v7+ optimisé (RPC < 5 calls/sec)
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import https from "https";
@@ -43,6 +43,10 @@ let stats = {
   polGained: 0n,
   swapCount: 0
 };
+
+let lastCheckTime = 0;
+let cachedPolBalance = 0n;
+let cachedLiquidity = 0;
 
 function log(msg) {
   console.log(msg);
@@ -89,15 +93,18 @@ async function approveIfNeeded(token, name) {
 }
 
 async function checkSecurity() {
-  const polBal = await pol.balanceOf(WALLET_ADDRESS);
-  const poolLiquidity = await pool.liquidity();
-  const liquidityEth = Number(poolLiquidity) / 1e18;
-
-  if (polBal < parseEther(10)) {
+  const now = Date.now();
+  if (now - lastCheckTime > 60000) {
+    cachedPolBalance = await pol.balanceOf(WALLET_ADDRESS);
+    const poolLiquidity = await pool.liquidity();
+    cachedLiquidity = Number(poolLiquidity) / 1e18;
+    lastCheckTime = now;
+  }
+  if (cachedPolBalance < parseEther(10)) {
     log("⚠️ Solde insuffisant (POL < 10). Aucun swap autorisé.");
     return false;
   }
-  if (liquidityEth < 30) {
+  if (cachedLiquidity < 30) {
     log("🚨 Attention : liquidité pool < 30 WMATIC !");
   }
   return true;
@@ -133,30 +140,33 @@ async function swap(tokenIn, tokenOut, amount, label) {
 }
 
 async function randomSwap() {
-  const polBal = await pol.balanceOf(WALLET_ADDRESS);
-  const xinBal = await xin.balanceOf(WALLET_ADDRESS);
   const amount = parseEther(randomBetween(0.5, 6).toFixed(3));
-  if (Math.random() < 0.5 && polBal > amount + parseEther(10)) {
+  if (Math.random() < 0.5 && cachedPolBalance > amount + parseEther(10)) {
     await swap(POL, XIN, amount, "POL → XIN (random)");
-  } else if (xinBal > amount) {
-    await swap(XIN, POL, amount, "XIN → POL (random)");
   } else {
-    log("⚠️ Swap aléatoire annulé (fonds insuffisants)");
+    const xinBal = await xin.balanceOf(WALLET_ADDRESS);
+    if (xinBal > amount) {
+      await swap(XIN, POL, amount, "XIN → POL (random)");
+    } else {
+      log("⚠️ Swap aléatoire annulé (fonds insuffisants)");
+    }
   }
 }
 
 async function rebalancer() {
-  const polBal = await pol.balanceOf(WALLET_ADDRESS);
-  if (polBal > parseEther(50)) {
-    const reinject = parseEther("5");
-    log("♻️ Rebalancing : réinjection de liquidité POL → pool");
-    // À implémenter : ajout de liquidité Uniswap V3 si souhaité
+  if (cachedPolBalance > parseEther(50)) {
+    log("♻️ Rebalancing : POL disponible élevé, à réinjecter dans la pool si besoin");
+    // Future implémentation : ajout de liquidité
   }
 }
 
 async function sendStats() {
   const msg = `📊 Stats XiBot v7+\nXIN acheté: ${formatEther(stats.xinBought)}\nXIN vendu: ${formatEther(stats.xinSold)}\nPOL utilisé: ${formatEther(stats.polUsed)}\nPOL gagné: ${formatEther(stats.polGained)}\nSwaps effectués: ${stats.swapCount}`;
   sendTelegram(msg);
+}
+
+function planNext(hourOffset) {
+  return Date.now() + hourOffset * 60 * 60 * 1000;
 }
 
 async function loop() {
@@ -191,12 +201,9 @@ async function loop() {
     await delay(randomBetween(60000, 180000));
   }
 }
-function planNext(hourOffset) {
-  return Date.now() + hourOffset * 60 * 60 * 1000;
-}
 loop();
 
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("🤖 XiBot v7+ actif sur Render avec IA & sécurité !");
+  res.end("🤖 XiBot v7+ actif sur Render avec IA & sécurité (RPC optimisé) !");
 }).listen(process.env.PORT || 3000);
