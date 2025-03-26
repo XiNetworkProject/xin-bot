@@ -1,4 +1,4 @@
-// XiBot v8 - Smart Rebalancer, Auto-Liquidity, External Swap Tracker (Polling), Stats+ Dashboard Ready
+// XiBot v8 - Patch getLogs + debug fonds insuffisants
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import https from "https";
@@ -147,10 +147,14 @@ async function swap(tokenIn, tokenOut, amount, label) {
 
 async function autoSwap() {
   const amount = parseEther(randomBetween(0.5, 6).toFixed(3));
+  log(`🔎 Tentative swap aléatoire de ${formatEther(amount)} tokens`);
+  log(`💰 Solde POL (cache) : ${formatEther(cachedPolBalance)} POL`);
+  const xinBal = await xin.balanceOf(WALLET_ADDRESS);
+  log(`💰 Solde actuel XIN : ${formatEther(xinBal)} XIN`);
+
   if (Math.random() < 0.5 && cachedPolBalance > amount + parseEther(10)) {
     await swap(POL, XIN, amount, "POL → XIN (random)");
   } else {
-    const xinBal = await xin.balanceOf(WALLET_ADDRESS);
     if (xinBal > amount) {
       await swap(XIN, POL, amount, "XIN → POL (random)");
     } else {
@@ -174,19 +178,23 @@ async function sendStats() {
 async function checkExternalSwaps() {
   try {
     const currentBlock = await provider.getBlockNumber();
-    const logs = await provider.getLogs({
-      address: POOL_ADDRESS,
-      fromBlock: lastBlock + 1,
-      toBlock: currentBlock,
-      topics: ["0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"]
-    });
-    logs.forEach(log => {
-      const sender = "0x" + log.topics[1].slice(26);
-      if (sender.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
-        stats.externalSwaps++;
-        log(`📡 Swap externe détecté\n👤 ${sender.slice(0, 8)}...\n🧾 Tx: https://polygonscan.com/tx/${log.transactionHash}`);
-      }
-    });
+    const from = lastBlock + 1;
+    const to = currentBlock;
+    if (to >= from) {
+      const logs = await provider.getLogs({
+        address: POOL_ADDRESS,
+        fromBlock: from,
+        toBlock: to,
+        topics: ["0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"]
+      });
+      logs.forEach(log => {
+        const sender = "0x" + log.topics[1].slice(26);
+        if (sender.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
+          stats.externalSwaps++;
+          log(`📡 Swap externe détecté\n👤 ${sender.slice(0, 8)}...\n🧾 Tx: https://polygonscan.com/tx/${log.transactionHash}`);
+        }
+      });
+    }
     lastBlock = currentBlock;
   } catch (err) {
     log(`❌ Erreur getLogs Swap : ${err.message}`);
