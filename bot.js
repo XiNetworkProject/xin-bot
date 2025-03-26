@@ -29,6 +29,10 @@ function randomAmount(min = 1, max = 5) {
   return ethers.parseEther(random.toFixed(2));
 }
 
+function randomDelay(min = 60000, max = 180000) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
 function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
   https.get(url, (res) => {
@@ -53,7 +57,6 @@ const polToken = new ethers.Contract(POL, erc20Abi, wallet);
 const xinToken = new ethers.Contract(XIN, erc20Abi, wallet);
 const pool = new ethers.Contract(POL, erc20Abi, provider);
 
-const interval = 3 * 60 * 1000;
 const MIN_POOL_RESERVE = ethers.parseEther("30");
 
 async function checkApproval(token, name) {
@@ -94,6 +97,30 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
   }
 }
 
+async function randomSwap() {
+  const polBalance = await polToken.balanceOf(wallet.address);
+  const xinBalance = await xinToken.balanceOf(wallet.address);
+  const safeLimit = ethers.parseEther("10");
+  const poolBalance = await getWmaticInPool();
+
+  const direction = Math.random() < 0.5 ? "buy" : "sell";
+  const amount = randomAmount();
+
+  if (direction === "buy") {
+    if (polBalance > safeLimit + amount) {
+      await swap(POL, XIN, amount, "POL → XIN (aléatoire)");
+    } else {
+      console.log("⚠️ Trop peu de POL pour achat aléatoire.");
+    }
+  } else {
+    if (xinBalance >= amount && poolBalance > MIN_POOL_RESERVE) {
+      await swap(XIN, POL, amount, "XIN → POL (aléatoire)");
+    } else {
+      console.log("⚠️ Trop peu de XIN ou pool faible pour vente aléatoire.");
+    }
+  }
+}
+
 async function loop() {
   await checkApproval(polToken, "POL (WMATIC)");
   await checkApproval(xinToken, "XIN");
@@ -120,34 +147,39 @@ async function loop() {
           }
         }
       } else {
-        if (poolBalance > MIN_POOL_RESERVE) {
-          console.log(`[DUMP] Revendre du XIN, pool safe`);
+        if (xinBalance > ethers.parseEther("1")) {
+          console.log("[DUMP] Revente de XIN suite à manque de POL");
           const amount = randomAmount();
-          if (xinBalance >= amount) {
-            await swap(XIN, POL, amount, "XIN → POL");
+          if (poolBalance > MIN_POOL_RESERVE) {
+            await swap(XIN, POL, amount, "XIN → POL (auto)");
           } else {
-            console.log("⚠️ Pas assez de XIN pour vendre");
+            sendTelegram("⛔ Vente XIN bloquée : pool trop faible.");
           }
         } else {
-          const msg = "⛔ Pool trop faible en WMATIC, vente désactivée.";
-          console.log(msg);
-          sendTelegram(msg);
+          console.log("⚠️ Pas assez de XIN pour dump");
         }
       }
 
-      await delay(interval);
+      await randomSwap(); // faire un swap bonus en plus
+      await delay(randomDelay());
     } catch (err) {
       const msg = `❌ Erreur dans la boucle : ${err.message}`;
       console.error(msg);
       sendTelegram(msg);
-      await delay(interval);
+      await delay(randomDelay());
     }
   }
 }
 
 loop();
 
+// Mode test pour Telegram
+if (process.argv.includes("test")) {
+  sendTelegram("✅ Test réussi : votre bot XIN est bien connecté à Telegram !");
+  process.exit(0);
+}
+
 http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("Bot XIN avec alertes Telegram actif.");
+  res.end("Bot XIN v6 actif (pump/dump + aléatoire + Telegram)");
 }).listen(process.env.PORT || 3000);
