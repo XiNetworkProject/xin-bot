@@ -87,12 +87,13 @@ function planNext(hourOffset) {
 }
 
 async function approveIfNeeded(token, name) {
-  const allowance = await token.allowance(WALLET_ADDRESS, ROUTER);
-  if (allowance < parseEther(10000)) {
-    log(`🔐 Approbation ${name}...`);
+  try {
+    log(`🔐 Approbation forcée de ${name}...`);
     const tx = await token.approve(ROUTER, ethers.MaxUint256);
     await tx.wait();
-    log(`✅ ${name} approuvé.`);
+    log(`✅ ${name} approuvé (sans vérification).`);
+  } catch (err) {
+    log(`❌ Échec approbation ${name} : ${err.message}`);
   }
 }
 
