@@ -1,6 +1,7 @@
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import http from "http";
+import https from "https";
 
 dotenv.config();
 
@@ -10,6 +11,9 @@ const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const XIN = process.env.XIN_TOKEN;
 const POL = process.env.POL_TOKEN;
 const UNISWAP_POOL = process.env.POOL_ADDRESS;
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+
 const ROUTER_ADDRESS = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -25,6 +29,15 @@ function randomAmount(min = 1, max = 5) {
   return ethers.parseEther(random.toFixed(2));
 }
 
+function sendTelegram(message) {
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
+  https.get(url, (res) => {
+    res.on("data", () => {});
+  }).on("error", (err) => {
+    console.error("❌ Erreur envoi Telegram:", err.message);
+  });
+}
+
 // === ABIs ===
 const routerAbi = [
   "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
@@ -38,7 +51,7 @@ const erc20Abi = [
 const router = new ethers.Contract(ROUTER_ADDRESS, routerAbi, wallet);
 const polToken = new ethers.Contract(POL, erc20Abi, wallet);
 const xinToken = new ethers.Contract(XIN, erc20Abi, wallet);
-const pool = new ethers.Contract(POL, erc20Abi, provider); // lecture du solde WMATIC de la pool
+const pool = new ethers.Contract(POL, erc20Abi, provider);
 
 const interval = 3 * 60 * 1000;
 const MIN_POOL_RESERVE = ethers.parseEther("30");
@@ -54,24 +67,31 @@ async function checkApproval(token, name) {
 }
 
 async function getWmaticInPool() {
-  const balance = await pool.balanceOf(UNISWAP_POOL);
-  return balance;
+  return await pool.balanceOf(UNISWAP_POOL);
 }
 
 async function swap(tokenIn, tokenOut, amountIn, label) {
   console.log(`🔁 Swapping ${ethers.formatEther(amountIn)} ${label}`);
-  const tx = await router.exactInputSingle([
-    tokenIn,
-    tokenOut,
-    3000,
-    wallet.address,
-    Math.floor(Date.now() / 1000) + 600,
-    amountIn,
-    0,
-    0
-  ], { gasLimit: 500000 });
-  await tx.wait();
-  console.log(`✅ Swap ${label} terminé\n`);
+  try {
+    const tx = await router.exactInputSingle([
+      tokenIn,
+      tokenOut,
+      3000,
+      wallet.address,
+      Math.floor(Date.now() / 1000) + 600,
+      amountIn,
+      0,
+      0
+    ], { gasLimit: 500000 });
+    await tx.wait();
+    const msg = `✅ Swap effectué : ${ethers.formatEther(amountIn)} ${label}`;
+    console.log(msg);
+    sendTelegram(msg);
+  } catch (err) {
+    const msg = `❌ Erreur lors du swap ${label}: ${err.message}`;
+    console.error(msg);
+    sendTelegram(msg);
+  }
 }
 
 async function loop() {
@@ -109,13 +129,17 @@ async function loop() {
             console.log("⚠️ Pas assez de XIN pour vendre");
           }
         } else {
-          console.log("⛔ Pool trop faible en WMATIC, vente désactivée temporairement.");
+          const msg = "⛔ Pool trop faible en WMATIC, vente désactivée.";
+          console.log(msg);
+          sendTelegram(msg);
         }
       }
 
       await delay(interval);
     } catch (err) {
-      console.error("❌ Erreur dans la boucle :", err.message);
+      const msg = `❌ Erreur dans la boucle : ${err.message}`;
+      console.error(msg);
+      sendTelegram(msg);
       await delay(interval);
     }
   }
@@ -125,5 +149,5 @@ loop();
 
 http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("Bot XIN intelligent actif.");
+  res.end("Bot XIN avec alertes Telegram actif.");
 }).listen(process.env.PORT || 3000);
