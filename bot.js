@@ -9,7 +9,8 @@ const RPC_URL = process.env.POLYGON_URL;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
 const XIN = process.env.XIN_TOKEN;
 const POL = process.env.POL_TOKEN;
-const ROUTER_ADDRESS = "0xE592427A0AEce92De3Edee1F18E0157C05861564"; // Uniswap V3 Router
+const UNISWAP_POOL = process.env.POOL_ADDRESS;
+const ROUTER_ADDRESS = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
@@ -24,10 +25,6 @@ function randomAmount(min = 1, max = 5) {
   return ethers.parseEther(random.toFixed(2));
 }
 
-function randomMode() {
-  return Math.random() < 0.5 ? "buy" : "sell";
-}
-
 // === ABIs ===
 const routerAbi = [
   "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
@@ -38,15 +35,14 @@ const erc20Abi = [
   "function balanceOf(address account) view returns (uint256)"
 ];
 
-// === CONTRACTS ===
 const router = new ethers.Contract(ROUTER_ADDRESS, routerAbi, wallet);
 const polToken = new ethers.Contract(POL, erc20Abi, wallet);
 const xinToken = new ethers.Contract(XIN, erc20Abi, wallet);
+const pool = new ethers.Contract(POL, erc20Abi, provider); // on lit le solde WMATIC dans la pool POL/XIN
 
-// === PARAMÈTRES ===
-const interval = 3 * 60 * 1000; // 3 minutes
+const interval = 3 * 60 * 1000;
+const MIN_POOL_RESERVE = ethers.parseEther("30");
 
-// === APPROVAL AUTO ===
 async function checkApproval(token, name) {
   const allowance = await token.allowance(wallet.address, ROUTER_ADDRESS);
   if (allowance < ethers.parseEther("1")) {
@@ -57,9 +53,13 @@ async function checkApproval(token, name) {
   }
 }
 
-// === SWAP LOGIQUE ===
-async function swap(tokenIn, tokenOut, amountIn, direction) {
-  console.log(`🔁 Swapping ${ethers.formatEther(amountIn)} ${direction === "buy" ? "POL → XIN" : "XIN → POL"}`);
+async function getWmaticInPool() {
+  const balance = await pool.balanceOf(UNISWAP_POOL);
+  return balance;
+}
+
+async function swap(tokenIn, tokenOut, amountIn, label) {
+  console.log(`🔁 Swapping ${ethers.formatEther(amountIn)} ${label}`);
   const tx = await router.exactInputSingle([
     tokenIn,
     tokenOut,
@@ -70,39 +70,50 @@ async function swap(tokenIn, tokenOut, amountIn, direction) {
     0,
     0
   ], { gasLimit: 500000 });
-
   await tx.wait();
-  console.log(`✅ Swap ${direction === "buy" ? "POL → XIN" : "XIN → POL"} terminé\n`);
+  console.log(`✅ Swap ${label} terminé\n`);
 }
 
-// === BOUCLE PRINCIPALE ===
 async function loop() {
   await checkApproval(polToken, "POL (WMATIC)");
   await checkApproval(xinToken, "XIN");
 
   while (true) {
     try {
-      const direction = randomMode(); // "buy" ou "sell"
-      const amount = randomAmount(); // aléatoire entre 1 et 5 WMATIC
+      const polBalance = await polToken.balanceOf(wallet.address);
+      const xinBalance = await xinToken.balanceOf(wallet.address);
+      const safeLimit = ethers.parseEther("10");
+      const poolBalance = await getWmaticInPool();
 
-      if (direction === "buy") {
-        const polBalance = await polToken.balanceOf(wallet.address);
-        if (polBalance >= amount && polBalance >= ethers.parseEther("1")) {
-          await swap(POL, XIN, amount, "buy");
-        } else {
-          console.log("⚠️ Pas assez de WMATIC pour acheter. Skip...");
+      if (polBalance > safeLimit.add(ethers.parseEther("1"))) {
+        const cycle = Math.floor(Math.random() * 3) + 1;
+        console.log(`[PUMP] Achat x${cycle}`);
+        for (let i = 0; i < cycle; i++) {
+          const amount = randomAmount();
+          const remaining = await polToken.balanceOf(wallet.address);
+          if (remaining.sub(amount) >= safeLimit) {
+            await swap(POL, XIN, amount, "POL → XIN");
+            await delay(2000);
+          } else {
+            console.log("⚠️ Seuil de sécurité atteint, stop achat");
+            break;
+          }
         }
       } else {
-        const xinBalance = await xinToken.balanceOf(wallet.address);
-        if (xinBalance >= amount && xinBalance >= ethers.parseEther("1")) {
-          await swap(XIN, POL, amount, "sell");
+        if (poolBalance > MIN_POOL_RESERVE) {
+          console.log(`[DUMP] Revendre du XIN, pool safe`);
+          const amount = randomAmount();
+          if (xinBalance >= amount) {
+            await swap(XIN, POL, amount, "XIN → POL");
+          } else {
+            console.log("⚠️ Pas assez de XIN pour vendre");
+          }
         } else {
-          console.log("⚠️ Pas assez de XIN pour vendre. Skip...");
+          console.log("⛔ Pool trop faible en WMATIC, vente désactivée temporairement.");
         }
       }
 
       await delay(interval);
-
     } catch (err) {
       console.error("❌ Erreur dans la boucle :", err.message);
       await delay(interval);
@@ -112,8 +123,8 @@ async function loop() {
 
 loop();
 
-// === FAKE HTTP SERVER POUR RENDER ===
+// Dummy server pour Render
 http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("Bot is running!");
+  res.end("Bot XIN intelligent actif.");
 }).listen(process.env.PORT || 3000);
