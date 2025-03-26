@@ -1,5 +1,8 @@
-require("dotenv").config();
-const { ethers } = require("ethers");
+import dotenv from "dotenv";
+import { ethers } from "ethers";
+import http from "http";
+
+dotenv.config();
 
 // === CONFIGURATION ===
 const RPC_URL = process.env.POLYGON_URL;
@@ -41,7 +44,6 @@ const polToken = new ethers.Contract(POL, erc20Abi, wallet);
 const xinToken = new ethers.Contract(XIN, erc20Abi, wallet);
 
 // === PARAMÈTRES ===
-const maxTotalBudget = ethers.parseEther("40");
 const interval = 3 * 60 * 1000; // 3 minutes
 
 // === APPROVAL AUTO ===
@@ -109,3 +111,9 @@ async function loop() {
 }
 
 loop();
+
+// === FAKE HTTP SERVER POUR RENDER ===
+http.createServer((req, res) => {
+  res.writeHead(200);
+  res.end("Bot is running!");
+}).listen(process.env.PORT || 3000);
