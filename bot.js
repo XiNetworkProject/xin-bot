@@ -38,7 +38,7 @@ const erc20Abi = [
 const router = new ethers.Contract(ROUTER_ADDRESS, routerAbi, wallet);
 const polToken = new ethers.Contract(POL, erc20Abi, wallet);
 const xinToken = new ethers.Contract(XIN, erc20Abi, wallet);
-const pool = new ethers.Contract(POL, erc20Abi, provider); // on lit le solde WMATIC dans la pool POL/XIN
+const pool = new ethers.Contract(POL, erc20Abi, provider); // lecture du solde WMATIC de la pool
 
 const interval = 3 * 60 * 1000;
 const MIN_POOL_RESERVE = ethers.parseEther("30");
@@ -85,13 +85,13 @@ async function loop() {
       const safeLimit = ethers.parseEther("10");
       const poolBalance = await getWmaticInPool();
 
-      if (polBalance > safeLimit.add(ethers.parseEther("1"))) {
+      if (polBalance > (safeLimit + ethers.parseEther("1"))) {
         const cycle = Math.floor(Math.random() * 3) + 1;
         console.log(`[PUMP] Achat x${cycle}`);
         for (let i = 0; i < cycle; i++) {
           const amount = randomAmount();
           const remaining = await polToken.balanceOf(wallet.address);
-          if (remaining.sub(amount) >= safeLimit) {
+          if ((remaining - amount) >= safeLimit) {
             await swap(POL, XIN, amount, "POL → XIN");
             await delay(2000);
           } else {
@@ -123,7 +123,6 @@ async function loop() {
 
 loop();
 
-// Dummy server pour Render
 http.createServer((req, res) => {
   res.writeHead(200);
   res.end("Bot XIN intelligent actif.");
