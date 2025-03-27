@@ -1,7 +1,6 @@
 // ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
 import dotenv from "dotenv";
 import { ethers } from "ethers";
-import { ethers } from "ethers";
 import { MaxUint256 } from "ethers";
 
 import { createRequire } from 'module'; 
