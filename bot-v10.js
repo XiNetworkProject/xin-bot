@@ -54,12 +54,11 @@ let stats = {
   initialPol: 0n
 };
 
-let performanceData = [];
 let nextPump = Date.now() + 2 * 60 * 60 * 1000;
 let nextDump = Date.now() + 4 * 60 * 60 * 1000;
 
 function delay(ms) {
-  return new Promise((res) => setTimeout(res, ms));
+  return new Promise(res => setTimeout(res, ms));
 }
 
 function parse(x) {
@@ -86,6 +85,13 @@ function getRandomAmount(max) {
   return parse(amount.toFixed(3));
 }
 
+function autoRestartCheck() {
+  if (Date.now() - stats.lastActivity > 20 * 60 * 1000) {
+    log("⏱️ Redémarrage automatique après inactivité.");
+    process.exit(1);
+  }
+}
+
 async function approveIfNeeded(token, name, spender) {
   const allowance = await token.allowance(wallet.address, spender);
   if (allowance < parse("10000")) {
@@ -97,7 +103,11 @@ async function approveIfNeeded(token, name, spender) {
 }
 
 async function swap(tokenIn, tokenOut, amount, label) {
-  log(`🔁 Swap ${label} : ${format(amount)} tokens`);
+  const balance = await (tokenIn === POL ? pol : xin).balanceOf(wallet.address);
+  if (balance < amount) {
+    log(`⚠️ Solde insuffisant pour swap ${label}`);
+    return;
+  }
   try {
     await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
     const tx = await router.exactInputSingle([
@@ -122,6 +132,7 @@ async function swap(tokenIn, tokenOut, amount, label) {
     log(`✅ Swap terminé (${label})`);
   } catch (err) {
     log(`❌ Erreur swap ${label} : ${err.message}`);
+    console.error(err);
   }
 }
 
@@ -170,7 +181,6 @@ async function loop() {
     autoRestartCheck();
     const polBalance = await pol.balanceOf(wallet.address);
     const xinBalance = await xin.balanceOf(wallet.address);
-
     const now = Date.now();
 
     if (polBalance > parse("10")) {
