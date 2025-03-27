@@ -1,4 +1,4 @@
-// ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
+ // ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import { createRequire } from 'module'; 
@@ -8,9 +8,6 @@ const NonfungiblePositionManagerABI = require('@uniswap/v3-periphery/artifacts/c
 
 import https from "https";
 import http from "http";
-import fs from "fs";
-import { ChartJSNodeCanvas } from "chartjs-node-canvas";
-import FormData from "form-data";
 import axios from "axios";
 
 dotenv.config();
