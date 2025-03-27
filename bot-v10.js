@@ -1,7 +1,10 @@
 // ✅ XiBot v10 - avec ajout/retrait réel de liquidité Uniswap V3 + graphique Telegram
 import dotenv from "dotenv";
 import { ethers } from "ethers";
-import NonfungiblePositionManager from "@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json" assert { type: "json" };
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
+const NonfungiblePositionManager = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
+
 import https from "https";
 import http from "http";
 import fs from "fs";
@@ -11,9 +14,9 @@ import axios from "axios";
 
 dotenv.config();
 
+
 const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-const NonfungiblePositionManagerABI = NonfungiblePositionManager.abi;
 
 const XIN = process.env.XIN_TOKEN;
 const POL = process.env.POL_TOKEN;
