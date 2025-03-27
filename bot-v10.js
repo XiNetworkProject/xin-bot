@@ -16,7 +16,6 @@ import axios from "axios";
 
 dotenv.config();
 
-
 const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
@@ -27,6 +26,7 @@ const ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 const NFT_POSITION_MANAGER = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88";
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const NFT_ID = process.env.NFT_ID; // Ajout de l'ID NFT directement depuis le fichier .env
 
 const erc20Abi = [
   "function approve(address spender, uint256 amount) external returns (bool)",
@@ -58,7 +58,7 @@ let stats = {
   swaps: 0,
   lastActivity: Date.now(),
   lastStats: Date.now(),
-  nftId: null,
+  nftId: NFT_ID,  // Utilisation de l'ID NFT récupéré depuis .env
   initialPol: 0n
 };
 
