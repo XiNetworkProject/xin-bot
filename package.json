@@ -1,7 +1,7 @@
 {
   "name": "xin-bot-v11",
-  "version": "1.1.0",
-  "description": "XiBot v11.1 - Bot intelligent auto-rentable pour Uniswap V3 (XIN/POL)",
+  "version": "1.1.1",
+  "description": "XiBot v11 Firebase-compatible avec sécurité POL min",
   "main": "bot-v11.js",
   "type": "module",
   "scripts": {
