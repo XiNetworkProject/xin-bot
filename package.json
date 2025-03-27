@@ -7,12 +7,12 @@
     "start": "node bot-v10.js"
   },
   "dependencies": {
+    "@uniswap/v3-periphery": "^1.0.0",
     "axios": "^1.6.8",
     "canvas": "^3.1.0",
-    "chart.js": "^4.4.8",
+    "chart.js": "^3.5.1",
     "chartjs-node-canvas": "^4.1.6",
     "dotenv": "^16.4.7",
-    "ethers": "^6.13.5",
-    "@uniswap/v3-periphery": "^1.0.0"
+    "ethers": "^6.13.5"
   }
 }
