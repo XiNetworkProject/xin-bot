@@ -10,9 +10,6 @@ const NonfungiblePositionManagerABI = require('@uniswap/v3-periphery/artifacts/c
 
 import https from "https";
 import http from "http";
-import fs from "fs";
-import { ChartJSNodeCanvas } from "chartjs-node-canvas";
-import FormData from "form-data";
 import axios from "axios";
 
 dotenv.config();
