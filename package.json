@@ -1,18 +1,20 @@
 {
-  "name": "xin-bot-v10",
-  "version": "1.0.0",
+  "name": "xin-bot-v11",
+  "version": "1.1.0",
+  "description": "XiBot v11.1 - Bot intelligent auto-rentable pour Uniswap V3 (XIN/POL)",
+  "main": "bot-v11.js",
   "type": "module",
-  "main": "bot-v10.js",
   "scripts": {
-    "start": "node bot-v10.js"
+    "start": "node bot-v11.js"
   },
+  "author": "XimaM",
+  "license": "MIT",
   "dependencies": {
-    "@uniswap/v3-periphery": "^1.4.4",
-    "axios": "^1.6.8",
-    "canvas": "^3.1.0",
-    "chart.js": "^3.5.1",
-    "chartjs-node-canvas": "^4.1.6",
     "dotenv": "^16.4.7",
-    "ethers": "^6.13.5"
+    "ethers": "^6.13.5",
+    "axios": "^1.6.8",
+    "@uniswap/v3-periphery": "^1.4.4",
+    "node-fetch": "^3.3.2",
+    "express": "^4.18.2"
   }
 }
