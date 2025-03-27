@@ -222,7 +222,8 @@ async function loop() {
       await swap(WPOL, XIN, amount, "PUMP POL → XIN");
       nextPump = now + 2 * 60 * 60 * 1000;
     
-} else if (now >= nextDump && xinBalance > parse("10")) {
+} }
+else if (now >= nextDump && xinBalance > parse("10")) {
   const amountDump = getRandomAmount(5);
   const price = await getXinPriceFromPool();
   if (price !== null) {
