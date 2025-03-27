@@ -1,9 +1,8 @@
-import dotenv from "dotenv";
+""import dotenv from "dotenv";
 import { ethers } from "ethers";
 import { createRequire } from 'module'; 
 const require = createRequire(import.meta.url);
 
-// Charger l'ABI de NonfungiblePositionManager
 const NonfungiblePositionManagerABI = require('@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json');
 
 import https from "https";
@@ -56,14 +55,14 @@ let stats = {
   swaps: 0,
   lastActivity: Date.now(),
   lastStats: Date.now(),
-  nftId: null,
+  nftId: parseInt(process.env.NFT_ID || "2482320"),
   initialPol: 0n,
   initialXIN: 0n
 };
 
 let performanceData = [];
 
-const LIQUIDITY_ADDITION_THRESHOLD = ethers.parseUnits("10", 18);  // Exemple seuil pour ajout de liquidité
+const PROFIT_REINJECTION_THRESHOLD = ethers.parseEther("6");
 
 function delay(ms) {
   return new Promise((res) => setTimeout(res, ms));
@@ -173,24 +172,19 @@ async function addLiquidity(amount0, amount1) {
   await approveIfNeeded(pol, "POL", NFT_POSITION_MANAGER);
   await approveIfNeeded(xin, "XIN", NFT_POSITION_MANAGER);
 
-  const tx = await nftManager.mint({
-    token0: POL,
-    token1: XIN,
-    fee: 3000,
-    tickLower: -600,
-    tickUpper: 600,
-    amount0Desired: amount0,
-    amount1Desired: amount1,
-    amount0Min: 0,
-    amount1Min: 0,
-    recipient: wallet.address,
-    deadline: Math.floor(Date.now() / 1000) + 600
-  });
-  const receipt = await tx.wait();
-  const event = receipt.logs.find(x => x.fragment.name === "IncreaseLiquidity");
-  if (event) {
-    stats.nftId = Number(event.args.tokenId);
-    log(`💧 Liquidité ajoutée ! NFT ID: ${stats.nftId}`);
+  try {
+    const tx = await nftManager.increaseLiquidity({
+      tokenId: stats.nftId,
+      amount0Desired: amount0,
+      amount1Desired: amount1,
+      amount0Min: 0,
+      amount1Min: 0,
+      deadline: Math.floor(Date.now() / 1000) + 600
+    });
+    await tx.wait();
+    log(`💧 Liquidité augmentée pour NFT ID: ${stats.nftId}`);
+  } catch (err) {
+    log(`⚠️ Erreur ajout liquidité : ${err.message}`);
   }
 }
 
@@ -207,6 +201,13 @@ async function removeLiquidity(nftId) {
   log("💸 Liquidité retirée");
 }
 
+function getRandomAmount(max) {
+  const min = 1;
+  const maxInt = parseFloat(max);
+  const amount = Math.random() * (maxInt - min) + min;
+  return parse(amount.toFixed(3));
+}
+
 async function loop() {
   await approveIfNeeded(pol, "POL", ROUTER);
   await approveIfNeeded(xin, "XIN", ROUTER);
@@ -218,22 +219,19 @@ async function loop() {
     autoRestartCheck();
     const polBalance = await pol.balanceOf(wallet.address);
     const xinBalance = await xin.balanceOf(wallet.address);
-
     const polVariation = polBalance - stats.initialPol;
-    const xinVariation = xinBalance - stats.initialXIN;
 
-    // Calculer la quantité de liquidité à ajouter ou retirer
-    if (Math.abs(Number(polVariation)) >= LIQUIDITY_ADDITION_THRESHOLD) {
-      await addLiquidity(parse("2"), parse("500"));
-    } else if (Math.abs(Number(xinVariation)) >= LIQUIDITY_ADDITION_THRESHOLD) {
-      await removeLiquidity(stats.nftId);
+    if (polVariation > PROFIT_REINJECTION_THRESHOLD) {
+      await addLiquidity(parse("1.5"), parse("300"));
     }
 
-    // Optimiser les swaps
-    if (polBalance > parse("10")) {
-      await swap(POL, XIN, parse("3"), "POL → XIN");
+    const rand = Math.random();
+    if (rand < 0.5 && polBalance > parse("5")) {
+      const amount = getRandomAmount(6);
+      await swap(POL, XIN, amount, "POL → XIN (random)");
     } else if (xinBalance > parse("10")) {
-      await swap(XIN, POL, parse("3"), "XIN → POL");
+      const amount = getRandomAmount(6);
+      await swap(XIN, POL, amount, "XIN → POL (random)");
     }
 
     if (Date.now() - stats.lastStats > 60 * 60 * 1000) {
@@ -247,7 +245,7 @@ async function loop() {
       stats.lastStats = Date.now();
     }
 
-    await delay(60000); // Attente de 1 minute avant le prochain cycle
+    await delay(60000);
   }
 }
 
