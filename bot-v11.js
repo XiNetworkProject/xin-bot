@@ -221,14 +221,21 @@ async function loop() {
       const amount = getRandomAmount(5);
       await swap(WPOL, XIN, amount, "PUMP POL → XIN");
       nextPump = now + 2 * 60 * 60 * 1000;
-    } else if (now >= nextDump && xinBalance > parse("10")) {
-      const amount = getRandomAmount(5);
-      const price = await getXinPriceFromPool();
-      if (price !== null) {
-        const minAcceptable = Number(format(stats.lastBuyPrice || parse("1"))) * 1.05;
-        if (price >= minAcceptable) {
-          await swap(XIN, WPOL, amount, "DUMP XIN → POL rentable");
-        } else {
+    
+} else if (now >= nextDump && xinBalance > parse("10")) {
+  const amountDump = getRandomAmount(5);
+  const price = await getXinPriceFromPool();
+  if (price !== null) {
+    const minAcceptable = Number(format(stats.lastBuyPrice || parse("1"))) * 1.05;
+    if (price >= minAcceptable) {
+      await swap(XIN, WPOL, amountDump, "DUMP XIN → POL rentable");
+    } else {
+      log(`💤 Vente annulée : prix actuel ${price.toFixed(4)} < prix cible ${minAcceptable.toFixed(4)}`);
+    }
+  }
+  nextDump = now + 4 * 60 * 60 * 1000;
+}
+else {
           log(`💤 Vente annulée : prix actuel ${price.toFixed(4)} < prix cible ${minAcceptable.toFixed(4)}`);
         }
       }
