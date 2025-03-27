@@ -1,4 +1,4 @@
-// XiBot v8 - Patch getLogs + debug fonds insuffisants
+// XiBot v8 - Pool XIN/POL
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import https from "https";
@@ -12,7 +12,7 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const XIN = process.env.XIN_TOKEN;
 const POL = process.env.POL_TOKEN;
-const POOL_ADDRESS = process.env.POOL_ADDRESS;
+const POOL_ADDRESS = "0x8459968b0e2DC35B4baf74DB61cE64fFD7368632";
 const ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
@@ -47,17 +47,12 @@ let stats = {
   xinSold: 0n,
   polUsed: 0n,
   polGained: 0n,
-  swapCount: 0,
-  externalSwaps: 0
+  swapCount: 0
 };
 
-let nextPump = Date.now() + 2 * 60 * 60 * 1000;
-let nextDump = Date.now() + 4 * 60 * 60 * 1000;
-let lastStats = Date.now();
 let lastCheckTime = 0;
 let cachedPolBalance = 0n;
 let cachedLiquidity = 0;
-let lastBlock = 0;
 
 function log(msg) {
   console.log(msg);
@@ -83,18 +78,23 @@ function getFormattedTime(ms) {
   const d = new Date(ms);
   return d.toISOString().split("T")[1].split(".")[0];
 }
-function planNext(hourOffset) {
-  return Date.now() + hourOffset * 60 * 60 * 1000;
+
+let nextPump = Date.now() + 2 * 60 * 60 * 1000;
+let nextDump = Date.now() + 4 * 60 * 60 * 1000;
+let lastStats = Date.now();
+
+function announceStartup() {
+  const message = `🤖 XiBot v8 lancé\n📈 Pump : ${getFormattedTime(nextPump)}\n📉 Dump : ${getFormattedTime(nextDump)}\n🌀 Aléatoire toutes les 1–3 min\n📡 Tracker swap externe (polling)`;
+  log(message);
 }
 
 async function approveIfNeeded(token, name) {
-  try {
+  const allowance = await token.allowance(WALLET_ADDRESS, ROUTER);
+  if (allowance < parseEther(10000)) {
     log(`🔐 Approbation forcée de ${name}...`);
     const tx = await token.approve(ROUTER, ethers.MaxUint256);
     await tx.wait();
     log(`✅ ${name} approuvé (sans vérification).`);
-  } catch (err) {
-    log(`❌ Échec approbation ${name} : ${err.message}`);
   }
 }
 
@@ -107,18 +107,15 @@ async function checkSecurity() {
     lastCheckTime = now;
   }
   if (cachedPolBalance < parseEther(10)) {
-    log("⚠️ Solde insuffisant (POL < 10). Aucun swap autorisé.");
+    log("⚠️ Swap aléatoire annulé (fonds insuffisants)");
     return false;
-  }
-  if (cachedLiquidity < 30) {
-    log("🚨 Attention : liquidité pool < 30 WMATIC !");
   }
   return true;
 }
 
 async function swap(tokenIn, tokenOut, amount, label) {
   if (!(await checkSecurity())) return;
-  log(`🔁 Tentative swap ${label} (${formatEther(amount)} tokens)`);
+  log(`🔎 Tentative swap ${label} de ${formatEther(amount)} tokens`);
   try {
     const tx = await router.exactInputSingle([
       tokenIn,
@@ -145,71 +142,30 @@ async function swap(tokenIn, tokenOut, amount, label) {
   }
 }
 
-async function autoSwap() {
+async function randomSwap() {
   const amount = parseEther(randomBetween(0.5, 6).toFixed(3));
-  log(`🔎 Tentative swap aléatoire de ${formatEther(amount)} tokens`);
-  log(`💰 Solde POL (cache) : ${formatEther(cachedPolBalance)} POL`);
-  const xinBal = await xin.balanceOf(WALLET_ADDRESS);
-  log(`💰 Solde actuel XIN : ${formatEther(xinBal)} XIN`);
-
   if (Math.random() < 0.5 && cachedPolBalance > amount + parseEther(10)) {
     await swap(POL, XIN, amount, "POL → XIN (random)");
   } else {
+    const xinBal = await xin.balanceOf(WALLET_ADDRESS);
     if (xinBal > amount) {
       await swap(XIN, POL, amount, "XIN → POL (random)");
-    } else {
-      log("⚠️ Swap aléatoire annulé (fonds insuffisants)");
     }
-  }
-}
-
-async function rebalancer() {
-  if (cachedPolBalance > parseEther(50)) {
-    log("♻️ Rebalancing : POL disponible élevé, à réinjecter dans la pool si besoin");
-    // Ajout de liquidité futur
   }
 }
 
 async function sendStats() {
-  const msg = `📊 Stats XiBot v8\nXIN acheté: ${formatEther(stats.xinBought)}\nXIN vendu: ${formatEther(stats.xinSold)}\nPOL utilisé: ${formatEther(stats.polUsed)}\nPOL gagné: ${formatEther(stats.polGained)}\nSwaps: ${stats.swapCount}\nSwaps externes détectés: ${stats.externalSwaps}`;
+  const msg = `📊 Stats XiBot\nXIN acheté: ${formatEther(stats.xinBought)}\nXIN vendu: ${formatEther(stats.xinSold)}\nPOL utilisé: ${formatEther(stats.polUsed)}\nPOL gagné: ${formatEther(stats.polGained)}\nSwaps: ${stats.swapCount}`;
   sendTelegram(msg);
 }
 
-async function checkExternalSwaps() {
-  try {
-    const currentBlock = await provider.getBlockNumber();
-    const from = lastBlock + 1;
-    const to = currentBlock;
-    if (to >= from) {
-      const logs = await provider.getLogs({
-        address: POOL_ADDRESS,
-        fromBlock: from,
-        toBlock: to,
-        topics: ["0xc42079f94a6350d7e6235f29174924f928cc2ac818eb64fed8004e115fbcca67"]
-      });
-      logs.forEach(log => {
-        const sender = "0x" + log.topics[1].slice(26);
-        if (sender.toLowerCase() !== WALLET_ADDRESS.toLowerCase()) {
-          stats.externalSwaps++;
-          log(`📡 Swap externe détecté\n👤 ${sender.slice(0, 8)}...\n🧾 Tx: https://polygonscan.com/tx/${log.transactionHash}`);
-        }
-      });
-    }
-    lastBlock = currentBlock;
-  } catch (err) {
-    log(`❌ Erreur getLogs Swap : ${err.message}`);
-  }
-}
-
-function announceStartup() {
-  const msg = `🤖 XiBot v8 lancé\n📈 Pump : ${getFormattedTime(nextPump)}\n📉 Dump : ${getFormattedTime(nextDump)}\n🌀 Aléatoire toutes les 1–3 min\n📡 Tracker swap externe (polling)`;
-  log(msg);
+function planNext(hourOffset) {
+  return Date.now() + hourOffset * 60 * 60 * 1000;
 }
 
 async function loop() {
   await approveIfNeeded(pol, "POL");
   await approveIfNeeded(xin, "XIN");
-  lastBlock = await provider.getBlockNumber();
   announceStartup();
 
   while (true) {
@@ -226,9 +182,7 @@ async function loop() {
       await sendStats();
       lastStats = now;
     }
-    await checkExternalSwaps();
-    await autoSwap();
-    await rebalancer();
+    await randomSwap();
     await delay(randomBetween(60000, 180000));
   }
 }
@@ -236,5 +190,5 @@ loop();
 
 http.createServer((req, res) => {
   res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("🤖 XiBot v8 actif ! Liquidity AI, swap tracker (polling), rebalancing et plus encore.");
+  res.end("🤖 XiBot v8 actif avec nouvelle pool XIN/POL !");
 }).listen(process.env.PORT || 3000);
