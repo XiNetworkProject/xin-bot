@@ -1,10 +1,9 @@
-// ✅ XiBot v11 - version Firebase-compatible synchronisée pour multi-bots avec swaps réels pump/dump
+// ✅ XiBot v11 - version Firebase-compatible synchronisée pour multi-bots avec vrais swaps
 
 import dotenv from "dotenv";
 dotenv.config({ path: process.argv.find(f => f.includes('.env')) || '.env' });
 
 import { ethers } from "ethers";
-import { Interface } from "ethers/lib/utils";
 import { db } from "./firebase.js";
 import https from "https";
 import http from "http";
@@ -20,10 +19,6 @@ const ROUTER = process.env.ROUTER;
 const NFT_ID = parseInt(process.env.NFT_ID || "2482320");
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-
-const iface = new Interface([
-  "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
-]);
 
 const erc20Abi = [
   "function approve(address spender, uint256 amount) external returns (bool)",
@@ -69,9 +64,18 @@ function getRandomAmount(max) {
   return parse(amount.toFixed(3));
 }
 
-async function uniswapSwap(tokenIn, tokenOut, amount, label) {
-  await approveIfNeeded(tokenIn === WPOL ? wpol : xin, label, ROUTER);
-  const params = {
+async function doSwap(direction) {
+  const amount = getRandomAmount(3);
+  const tokenIn = direction === "buy" ? WPOL : XIN;
+  const tokenOut = direction === "buy" ? XIN : WPOL;
+
+  await approveIfNeeded(direction === "buy" ? wpol : xin, direction.toUpperCase(), ROUTER);
+
+  const iface = new ethers.Interface([
+    "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
+  ]);
+
+  const data = iface.encodeFunctionData("exactInputSingle", [{
     tokenIn,
     tokenOut,
     fee: 3000,
@@ -80,29 +84,18 @@ async function uniswapSwap(tokenIn, tokenOut, amount, label) {
     amountIn: amount,
     amountOutMinimum: 0,
     sqrtPriceLimitX96: 0
-  };
-  const data = iface.encodeFunctionData("exactInputSingle", [params]);
-  const tx = await wallet.sendTransaction({ to: ROUTER, data, value: 0 });
-  await tx.wait();
-  log(`✅ Swap réel exécuté (${label})`);
-}
+  }]);
 
-async function doSwap(direction, real = false) {
-  const amount = getRandomAmount(3);
-  const label = direction === "buy" ? "POL → XIN" : "XIN → POL";
-
-  if (real) {
-    await uniswapSwap(
-      direction === "buy" ? WPOL : XIN,
-      direction === "buy" ? XIN : WPOL,
-      amount,
-      `PUMP/DUMP ${label}`
-    );
-  } else {
-    await approveIfNeeded(direction === "buy" ? wpol : xin, direction.toUpperCase(), ROUTER);
-    log(`🔁 Swap simulé ${label} : ${format(amount)} tokens`);
-    await delay(1000);
-    log(`✅ Swap simulé terminé (${direction})`);
+  try {
+    const tx = await wallet.sendTransaction({
+      to: ROUTER,
+      data,
+      value: 0
+    });
+    await tx.wait();
+    log(`🔁 Swap réussi (${direction === "buy" ? "POL → XIN" : "XIN → POL"})`);
+  } catch (err) {
+    log(`❌ Erreur swap (${direction}): ${err.message}`);
   }
 }
 
@@ -114,12 +107,12 @@ async function loop() {
     const { nextPump, nextDump } = strategy || {};
 
     if (BOT_ID === "bot1" && now >= nextPump) {
-      await doSwap("buy", true);
+      await doSwap("buy");
       await db.ref("/xibot/strategy/nextPump").set(now + 2 * 60 * 60 * 1000);
     }
 
     if (BOT_ID === "bot2" && now >= nextDump) {
-      await doSwap("sell", true);
+      await doSwap("sell");
       await db.ref("/xibot/strategy/nextDump").set(now + 2 * 60 * 60 * 1000);
     }
 
