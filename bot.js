@@ -1,194 +1,169 @@
-// XiBot v8 - Pool XIN/POL
+// XiBot v8 - Boosté depuis v6 avec pool XIN/POL optimisée
 import dotenv from "dotenv";
 import { ethers } from "ethers";
-import https from "https";
 import http from "http";
+import https from "https";
+
 dotenv.config();
 
+// === CONFIGURATION ===
 const RPC_URL = process.env.POLYGON_URL;
 const PRIVATE_KEY = process.env.PRIVATE_KEY;
-const WALLET_ADDRESS = new ethers.Wallet(PRIVATE_KEY).address;
-const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
-const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 const XIN = process.env.XIN_TOKEN;
 const POL = process.env.POL_TOKEN;
-const POOL_ADDRESS = "0x8459968b0e2DC35B4baf74DB61cE64fFD7368632";
-const ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
+const UNISWAP_POOL = "0x8459968b0e2DC35B4baf74DB61cE64fFD7368632";
+const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
+const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
+const ROUTER_ADDRESS = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 
 const provider = new ethers.JsonRpcProvider(RPC_URL);
 const wallet = new ethers.Wallet(PRIVATE_KEY, provider);
 
-const routerAbi = [
-  "function exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160)) external payable returns (uint256)"
-];
-const erc20Abi = [
-  "function approve(address spender, uint256 amount) external returns (bool)",
-  "function transfer(address recipient, uint256 amount) external returns (bool)",
-  "function transferFrom(address sender, address recipient, uint256 amount) external returns (bool)",
-  "function balanceOf(address account) external view returns (uint256)",
-  "function allowance(address owner, address spender) external view returns (uint256)",
-  "function totalSupply() external view returns (uint256)",
-  "function name() external view returns (string)",
-  "function symbol() external view returns (string)",
-  "function decimals() external view returns (uint8)"
-];
-const poolAbi = [
-  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
-  "function liquidity() view returns (uint128)"
-];
-
-const xin = new ethers.Contract(XIN, erc20Abi, wallet);
-const pol = new ethers.Contract(POL, erc20Abi, wallet);
-const router = new ethers.Contract(ROUTER, routerAbi, wallet);
-const pool = new ethers.Contract(POOL_ADDRESS, poolAbi, provider);
-
-let stats = {
-  xinBought: 0n,
-  xinSold: 0n,
-  polUsed: 0n,
-  polGained: 0n,
-  swapCount: 0
-};
-
-let lastCheckTime = 0;
-let cachedPolBalance = 0n;
-let cachedLiquidity = 0;
-
-function log(msg) {
-  console.log(msg);
-  sendTelegram(msg);
+// === UTILS ===
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+function randomAmount(min = 0.5, max = 6) {
+  const random = Math.random() * (max - min) + min;
+  return ethers.parseEther(random.toFixed(3));
+}
+function randomDelay(min = 60000, max = 180000) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
-  https.get(url, () => {});
-}
-function parseEther(x) {
-  return ethers.parseEther(x.toString());
-}
-function formatEther(x) {
-  return ethers.formatEther(x);
-}
-function delay(ms) {
-  return new Promise(res => setTimeout(res, ms));
-}
-function randomBetween(min, max) {
-  return Math.random() * (max - min) + min;
-}
-function getFormattedTime(ms) {
-  const d = new Date(ms);
-  return d.toISOString().split("T")[1].split(".")[0];
+  https.get(url, (res) => res.on("data", () => {})).on("error", (err) => {
+    console.error("❌ Erreur Telegram:", err.message);
+  });
 }
 
-let nextPump = Date.now() + 2 * 60 * 60 * 1000;
-let nextDump = Date.now() + 4 * 60 * 60 * 1000;
-let lastStats = Date.now();
+// === ABIs ===
+const routerAbi = [
+  "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
+];
+const erc20Abi = [
+  "function approve(address spender, uint256 amount) external returns (bool)",
+  "function allowance(address owner, address spender) view returns (uint256)",
+  "function balanceOf(address account) view returns (uint256)"
+];
 
-function announceStartup() {
-  const message = `🤖 XiBot v8 lancé\n📈 Pump : ${getFormattedTime(nextPump)}\n📉 Dump : ${getFormattedTime(nextDump)}\n🌀 Aléatoire toutes les 1–3 min\n📡 Tracker swap externe (polling)`;
-  log(message);
-}
+const router = new ethers.Contract(ROUTER_ADDRESS, routerAbi, wallet);
+const polToken = new ethers.Contract(POL, erc20Abi, wallet);
+const xinToken = new ethers.Contract(XIN, erc20Abi, wallet);
+const pool = new ethers.Contract(POL, erc20Abi, provider);
 
-async function approveIfNeeded(token, name) {
-  const allowance = await token.allowance(WALLET_ADDRESS, ROUTER);
-  if (allowance < parseEther(10000)) {
-    log(`🔐 Approbation forcée de ${name}...`);
-    const tx = await token.approve(ROUTER, ethers.MaxUint256);
+const MIN_POOL_RESERVE = ethers.parseEther("30");
+
+async function checkApproval(token, name) {
+  const allowance = await token.allowance(wallet.address, ROUTER_ADDRESS);
+  if (allowance < ethers.parseEther("1")) {
+    console.log(`🔐 Approbation requise pour ${name}. Envoi...`);
+    const tx = await token.approve(ROUTER_ADDRESS, ethers.MaxUint256);
     await tx.wait();
-    log(`✅ ${name} approuvé (sans vérification).`);
+    console.log(`✅ ${name} approuvé.`);
   }
 }
 
-async function checkSecurity() {
-  const now = Date.now();
-  if (now - lastCheckTime > 60000) {
-    cachedPolBalance = await pol.balanceOf(WALLET_ADDRESS);
-    const poolLiquidity = await pool.liquidity();
-    cachedLiquidity = Number(poolLiquidity) / 1e18;
-    lastCheckTime = now;
-  }
-  if (cachedPolBalance < parseEther(10)) {
-    log("⚠️ Swap aléatoire annulé (fonds insuffisants)");
-    return false;
-  }
-  return true;
+async function getWmaticInPool() {
+  return await pool.balanceOf(UNISWAP_POOL);
 }
 
-async function swap(tokenIn, tokenOut, amount, label) {
-  if (!(await checkSecurity())) return;
-  log(`🔎 Tentative swap ${label} de ${formatEther(amount)} tokens`);
+async function swap(tokenIn, tokenOut, amountIn, label) {
+  console.log(`🔁 Tentative swap : ${ethers.formatEther(amountIn)} ${label}`);
   try {
     const tx = await router.exactInputSingle([
       tokenIn,
       tokenOut,
       3000,
-      WALLET_ADDRESS,
+      wallet.address,
       Math.floor(Date.now() / 1000) + 600,
-      amount,
+      amountIn,
       0,
       0
     ], { gasLimit: 500000 });
     await tx.wait();
-    stats.swapCount++;
-    if (label.includes("POL → XIN")) {
-      stats.polUsed += amount;
-      stats.xinBought += amount;
-    } else {
-      stats.xinSold += amount;
-      stats.polGained += amount;
-    }
-    log(`✅ Swap réussi : ${label}`);
+    const msg = `✅ Swap OK : ${ethers.formatEther(amountIn)} ${label}`;
+    console.log(msg);
+    sendTelegram(msg);
   } catch (err) {
-    log(`❌ Échec swap ${label} : ${err.message}`);
+    const msg = `❌ Swap échoué ${label}: ${err.message}`;
+    console.error(msg);
+    sendTelegram(msg);
   }
 }
 
 async function randomSwap() {
-  const amount = parseEther(randomBetween(0.5, 6).toFixed(3));
-  if (Math.random() < 0.5 && cachedPolBalance > amount + parseEther(10)) {
-    await swap(POL, XIN, amount, "POL → XIN (random)");
+  const polBalance = await polToken.balanceOf(wallet.address);
+  const xinBalance = await xinToken.balanceOf(wallet.address);
+  const poolBalance = await getWmaticInPool();
+  const safeLimit = ethers.parseEther("10");
+  const amount = randomAmount();
+  const direction = Math.random() < 0.5 ? "buy" : "sell";
+
+  if (direction === "buy" && polBalance > safeLimit + amount) {
+    await swap(POL, XIN, amount, "POL → XIN (aléatoire)");
+  } else if (direction === "sell" && xinBalance > amount && poolBalance > MIN_POOL_RESERVE) {
+    await swap(XIN, POL, amount, "XIN → POL (aléatoire)");
   } else {
-    const xinBal = await xin.balanceOf(WALLET_ADDRESS);
-    if (xinBal > amount) {
-      await swap(XIN, POL, amount, "XIN → POL (random)");
-    }
+    console.log("⚠️ Swap aléatoire annulé (fonds ou pool insuffisants)");
   }
-}
-
-async function sendStats() {
-  const msg = `📊 Stats XiBot\nXIN acheté: ${formatEther(stats.xinBought)}\nXIN vendu: ${formatEther(stats.xinSold)}\nPOL utilisé: ${formatEther(stats.polUsed)}\nPOL gagné: ${formatEther(stats.polGained)}\nSwaps: ${stats.swapCount}`;
-  sendTelegram(msg);
-}
-
-function planNext(hourOffset) {
-  return Date.now() + hourOffset * 60 * 60 * 1000;
 }
 
 async function loop() {
-  await approveIfNeeded(pol, "POL");
-  await approveIfNeeded(xin, "XIN");
-  announceStartup();
+  await checkApproval(polToken, "POL (WMATIC)");
+  await checkApproval(xinToken, "XIN");
 
   while (true) {
-    const now = Date.now();
-    if (now >= nextPump) {
-      await swap(POL, XIN, parseEther(randomBetween(3, 6).toFixed(2)), "POL → XIN (PUMP)");
-      nextPump = planNext(2);
+    try {
+      const polBalance = await polToken.balanceOf(wallet.address);
+      const xinBalance = await xinToken.balanceOf(wallet.address);
+      const poolBalance = await getWmaticInPool();
+      const safeLimit = ethers.parseEther("10");
+
+      if (polBalance > safeLimit + ethers.parseEther("1")) {
+        const cycles = Math.floor(Math.random() * 3) + 1;
+        console.log(`[⏫ PUMP] Achat x${cycles}`);
+        for (let i = 0; i < cycles; i++) {
+          const amount = randomAmount();
+          const remaining = await polToken.balanceOf(wallet.address);
+          if (remaining - amount >= safeLimit) {
+            await swap(POL, XIN, amount, `POL → XIN #${i + 1}`);
+            await delay(2000);
+          } else {
+            console.log("🔻 Stop PUMP, sécurité POL");
+            break;
+          }
+        }
+      } else if (xinBalance > ethers.parseEther("1")) {
+        const amount = randomAmount();
+        console.log("[⏬ DUMP] Vente de XIN (auto)");
+        if (poolBalance > MIN_POOL_RESERVE) {
+          await swap(XIN, POL, amount, "XIN → POL (auto)");
+        } else {
+          sendTelegram("🚫 DUMP bloqué : pool trop faible");
+        }
+      }
+
+      await randomSwap();
+      await delay(randomDelay());
+
+    } catch (err) {
+      const msg = `❌ Erreur dans la boucle : ${err.message}`;
+      console.error(msg);
+      sendTelegram(msg);
+      await delay(randomDelay());
     }
-    if (now >= nextDump) {
-      await swap(XIN, POL, parseEther(randomBetween(2, 4).toFixed(2)), "XIN → POL (DUMP)");
-      nextDump = planNext(4);
-    }
-    if (now - lastStats >= 60 * 60 * 1000) {
-      await sendStats();
-      lastStats = now;
-    }
-    await randomSwap();
-    await delay(randomBetween(60000, 180000));
   }
 }
+
 loop();
 
+if (process.argv.includes("test")) {
+  sendTelegram("✅ Test réussi : bot XIN connecté à Telegram");
+  process.exit(0);
+}
+
 http.createServer((req, res) => {
-  res.writeHead(200, { "Content-Type": "text/plain" });
-  res.end("🤖 XiBot v8 actif avec nouvelle pool XIN/POL !");
+  res.writeHead(200);
+  res.end("🤖 XiBot v8 actif (XIN/POL optimisé)");
 }).listen(process.env.PORT || 3000);
