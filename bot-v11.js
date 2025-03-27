@@ -1,6 +1,7 @@
 // ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
 import dotenv from "dotenv";
 import { ethers } from "ethers";
+import { Interface } from "ethers/lib/utils";
 import { MaxUint256 } from "ethers";
 
 import { createRequire } from 'module'; 
@@ -13,7 +14,7 @@ import http from "http";
 import axios from "axios";
 
 dotenv.config();
-const MAX_UINT256 = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+const MAX_UINT128 = (2n ** 128n) - 1n;
 
 
 const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
@@ -91,8 +92,8 @@ async function harvestFees() {
     const tx = await nftManager.collect({
       tokenId: stats.nftId,
       recipient: wallet.address,
-      amount0Max: MAX_UINT256,
-      amount1Max: MAX_UINT256
+      amount0Max: MAX_UINT128,
+      amount1Max: MAX_UINT128
     });
     await tx.wait();
     log(`🧾 Fees collectés sur NFT ID ${stats.nftId}`);
@@ -127,6 +128,7 @@ async function approveIfNeeded(token, name, spender) {
   }
 }
 
+
 async function swap(tokenIn, tokenOut, amount, label) {
   const polBalance = await wpol.balanceOf(wallet.address);
   if (tokenIn === WPOL && polBalance < parse("10")) {
@@ -136,9 +138,15 @@ async function swap(tokenIn, tokenOut, amount, label) {
 
   log(`🔁 Swap ${label} : ${format(amount)} tokens`);
   console.log("🔍 DEBUG swap params:", { tokenIn, tokenOut, amount: format(amount), label });
+
   try {
     await approveIfNeeded(tokenIn === WPOL ? wpol : xin, label, ROUTER);
-    const params = {
+
+    const iface = new Interface([
+      "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
+    ]);
+
+    const data = iface.encodeFunctionData("exactInputSingle", [{
       tokenIn,
       tokenOut,
       fee: 3000,
@@ -147,9 +155,16 @@ async function swap(tokenIn, tokenOut, amount, label) {
       amountIn: amount,
       amountOutMinimum: 0,
       sqrtPriceLimitX96: 0
-    };
-    const tx = await router.exactInputSingle(params);
+    }]);
+
+    const tx = await wallet.sendTransaction({
+      to: ROUTER,
+      data,
+      value: 0
+    });
+
     await tx.wait();
+
     if (label.includes("POL → XIN")) {
       stats.xinBought += amount;
       stats.polUsed += amount;
@@ -157,8 +172,10 @@ async function swap(tokenIn, tokenOut, amount, label) {
       stats.xinSold += amount;
       stats.polGained += amount;
     }
+
     stats.swaps++;
     log(`✅ Swap terminé (${label})`);
+
   } catch (err) {
     log(`❌ Erreur swap ${label} : ${err.message}`);
   }
