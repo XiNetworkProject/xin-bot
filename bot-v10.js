@@ -1,4 +1,4 @@
-// ✅ XiBot v10 - avec ajout/retrait réel de liquidité Uniswap V3 + graphique Telegram
+// ✅ XiBot v10 - Optimisé avec gestion de swaps et liquidité Uniswap V3
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import { createRequire } from 'module'; 
@@ -49,6 +49,7 @@ const router = new ethers.Contract(ROUTER, routerAbi, wallet);
 const pool = new ethers.Contract(POOL_ADDRESS, poolAbi, provider);
 const nftManager = new ethers.Contract(NFT_POSITION_MANAGER, NonfungiblePositionManagerABI.abi, wallet);
 
+// Statistiques du bot
 let stats = {
   polUsed: 0n,
   polGained: 0n,
@@ -57,16 +58,22 @@ let stats = {
   swaps: 0,
   lastActivity: Date.now(),
   lastStats: Date.now(),
-  nftId: process.env.NFT_ID, // Charger directement l'ID NFT depuis le .env
+  nftId: process.env.NFT_ID || null,
   initialPol: 0n
 };
 
 let performanceData = [];
 
+// Paramètres d'optimisation
+const LIQUIDITY_ADDITION_THRESHOLD = parse("1");  // Minimum variation POL avant ajout de liquidité
+const SWAP_THRESHOLD = parse("3");  // Seuil de swap minimum (en POL)
+
+// Fonction pour gérer les délais
 function delay(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+// Fonction de conversion de tokens
 function parse(x) {
   return ethers.parseEther(x.toString());
 }
@@ -75,6 +82,7 @@ function format(x) {
   return ethers.formatEther(x);
 }
 
+// Fonction de logging
 function log(msg) {
   console.log(msg);
   sendTelegram(msg);
@@ -120,6 +128,7 @@ async function generateChart() {
   await sendTelegramChart("pnl.png", "📈 Performance horaire de XiBot");
 }
 
+// Vérifier l'inactivité et redémarrer le bot
 function autoRestartCheck() {
   const now = Date.now();
   if (now - stats.lastActivity > 20 * 60 * 1000) {
@@ -128,6 +137,7 @@ function autoRestartCheck() {
   }
 }
 
+// Approbation des tokens si nécessaire
 async function approveIfNeeded(token, name, spender) {
   const allowance = await token.allowance(wallet.address, spender);
   if (allowance < parse("10000")) {
@@ -138,7 +148,9 @@ async function approveIfNeeded(token, name, spender) {
   }
 }
 
+// Optimisation des swaps : seulement lorsque le solde est suffisant
 async function swap(tokenIn, tokenOut, amount, label) {
+  if (amount < SWAP_THRESHOLD) return;  // Si le swap est trop petit, ne pas l'effectuer
   log(`🔁 Swap ${label} : ${format(amount)} tokens`);
   try {
     await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
@@ -167,48 +179,48 @@ async function swap(tokenIn, tokenOut, amount, label) {
   }
 }
 
-async function addLiquidity(amount0, amount1) {
-  if (stats.nftId) {
-    // Si le NFT existe, réutiliser ce NFT pour ajouter de la liquidité
-    log(`🔄 Réutilisation du NFT ID: ${stats.nftId} pour ajouter de la liquidité`);
-    const tx = await nftManager.increaseLiquidity({
-      tokenId: stats.nftId,
-      amount0Desired: amount0,
-      amount1Desired: amount1,
-      amount0Min: 0,
-      amount1Min: 0,
-      deadline: Math.floor(Date.now() / 1000) + 600
-    });
-    await tx.wait();
-    log(`💧 Liquidité ajoutée au NFT existant!`);
-  } else {
-    // Si le NFT n'existe pas, en créer un nouveau
-    log(`🆕 Création d'un nouveau NFT pour ajouter de la liquidité`);
-    await approveIfNeeded(pol, "POL", NFT_POSITION_MANAGER);
-    await approveIfNeeded(xin, "XIN", NFT_POSITION_MANAGER);
+// Ajouter la liquidité si nécessaire
+async function addLiquidityIfNeeded() {
+  const polBalance = await pol.balanceOf(wallet.address);
+  const xinBalance = await xin.balanceOf(wallet.address);
 
-    const tx = await nftManager.mint({
-      token0: POL,
-      token1: XIN,
-      fee: 3000,
-      tickLower: -600,
-      tickUpper: 600,
-      amount0Desired: amount0,
-      amount1Desired: amount1,
-      amount0Min: 0,
-      amount1Min: 0,
-      recipient: wallet.address,
-      deadline: Math.floor(Date.now() / 1000) + 600
-    });
-    const receipt = await tx.wait();
-    const event = receipt.logs.find(x => x.fragment.name === "IncreaseLiquidity");
-    if (event) {
-      stats.nftId = Number(event.args.tokenId);
-      log(`💧 Liquidité ajoutée ! NFT ID: ${stats.nftId}`);
-    }
+  // Vérification de la variation de la liquidité POL avant ajout
+  const polVariation = polBalance - stats.initialPol;
+
+  if (Math.abs(polVariation) >= LIQUIDITY_ADDITION_THRESHOLD) {
+    await addLiquidity(parse("2"), parse("500"));
+    stats.initialPol = polBalance;  // Mettre à jour le solde de POL après ajout
+    log(`💧 Liquidité ajoutée en fonction de la variation POL de ${format(polVariation)}`);
   }
 }
 
+// Ajouter de la liquidité
+async function addLiquidity(amount0, amount1) {
+  await approveIfNeeded(pol, "POL", NFT_POSITION_MANAGER);
+  await approveIfNeeded(xin, "XIN", NFT_POSITION_MANAGER);
+
+  const tx = await nftManager.mint({
+    token0: POL,
+    token1: XIN,
+    fee: 3000,
+    tickLower: -600,
+    tickUpper: 600,
+    amount0Desired: amount0,
+    amount1Desired: amount1,
+    amount0Min: 0,
+    amount1Min: 0,
+    recipient: wallet.address,
+    deadline: Math.floor(Date.now() / 1000) + 600
+  });
+  const receipt = await tx.wait();
+  const event = receipt.logs.find(x => x.fragment.name === "IncreaseLiquidity");
+  if (event) {
+    stats.nftId = Number(event.args.tokenId);
+    log(`💧 Liquidité ajoutée ! NFT ID: ${stats.nftId}`);
+  }
+}
+
+// Retirer la liquidité si nécessaire
 async function removeLiquidity(nftId) {
   if (!nftId) return;
   const tx = await nftManager.decreaseLiquidity({
@@ -222,6 +234,7 @@ async function removeLiquidity(nftId) {
   log("💸 Liquidité retirée");
 }
 
+// Boucle principale du bot
 async function loop() {
   await approveIfNeeded(pol, "POL", ROUTER);
   await approveIfNeeded(xin, "XIN", ROUTER);
@@ -230,14 +243,16 @@ async function loop() {
 
   while (true) {
     autoRestartCheck();
+
     const polBalance = await pol.balanceOf(wallet.address);
     const xinBalance = await xin.balanceOf(wallet.address);
 
     if (polBalance > parse("10")) {
       await swap(POL, XIN, parse("3"), "POL → XIN");
-      await addLiquidity(parse("2"), parse("500"));
-    } else if (xinBalance > parse("10")) {
-      await removeLiquidity(stats.nftId);
+      await addLiquidityIfNeeded();
+    }
+
+    if (xinBalance > parse("10")) {
       await swap(XIN, POL, parse("3"), "XIN → POL");
     }
 
@@ -252,7 +267,7 @@ async function loop() {
       stats.lastStats = Date.now();
     }
 
-    await delay(60000);
+    await delay(60000); // Délai de 60 secondes entre chaque itération
   }
 }
 
