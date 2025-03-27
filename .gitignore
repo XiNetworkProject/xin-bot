@@ -1,2 +1,4 @@
 .env
 node_modules
+echo "xi-bot-a46b5-firebase-adminsdk-*.json" >> .gitignore
+"xi-bot-a46b5-firebase-adminsdk-*.json" 
