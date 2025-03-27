@@ -1,3 +1,4 @@
+// ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import { createRequire } from 'module'; 
@@ -36,15 +37,9 @@ const routerAbi = [
   "function exactInputSingle((address,address,uint24,address,uint256,uint256,uint256,uint160)) external payable returns (uint256)"
 ];
 
-const poolAbi = [
-  "event Swap(address indexed sender, address indexed recipient, int256 amount0, int256 amount1, uint160 sqrtPriceX96, uint128 liquidity, int24 tick)",
-  "function liquidity() view returns (uint128)"
-];
-
 const xin = new ethers.Contract(XIN, erc20Abi, wallet);
 const pol = new ethers.Contract(POL, erc20Abi, wallet);
 const router = new ethers.Contract(ROUTER, routerAbi, wallet);
-const pool = new ethers.Contract(POOL_ADDRESS, poolAbi, provider);
 const nftManager = new ethers.Contract(NFT_POSITION_MANAGER, NonfungiblePositionManagerABI.abi, wallet);
 
 let stats = {
@@ -56,13 +51,12 @@ let stats = {
   lastActivity: Date.now(),
   lastStats: Date.now(),
   nftId: parseInt(process.env.NFT_ID || "2482320"),
-  initialPol: 0n,
-  initialXIN: 0n
+  initialPol: 0n
 };
 
 let performanceData = [];
-
-const PROFIT_REINJECTION_THRESHOLD = ethers.parseEther("6");
+let nextPump = Date.now() + 2 * 60 * 60 * 1000;
+let nextDump = Date.now() + 4 * 60 * 60 * 1000;
 
 function delay(ms) {
   return new Promise((res) => setTimeout(res, ms));
@@ -87,46 +81,9 @@ function sendTelegram(msg) {
   https.get(url, () => {});
 }
 
-async function sendTelegramChart(path, caption = "") {
-  const form = new FormData();
-  form.append("chat_id", TELEGRAM_CHAT_ID);
-  form.append("caption", caption);
-  form.append("photo", fs.createReadStream(path));
-
-  await axios.post(`https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendPhoto`, form, {
-    headers: form.getHeaders()
-  });
-}
-
-async function generateChart() {
-  const width = 600, height = 300;
-  const canvas = new ChartJSNodeCanvas({ width, height });
-  const config = {
-    type: 'line',
-    data: {
-      labels: performanceData.map(p => p.time),
-      datasets: [{
-        label: 'Profit net (POL)',
-        data: performanceData.map(p => p.pnl),
-        borderWidth: 2
-      }]
-    },
-    options: {
-      responsive: false,
-      scales: { y: { beginAtZero: true } }
-    }
-  };
-  const buffer = await canvas.renderToBuffer(config);
-  fs.writeFileSync("pnl.png", buffer);
-  await sendTelegramChart("pnl.png", "📈 Performance horaire de XiBot");
-}
-
-function autoRestartCheck() {
-  const now = Date.now();
-  if (now - stats.lastActivity > 20 * 60 * 1000) {
-    log("⏱️ Inactivité détectée >20min. Redémarrage recommandé.");
-    process.exit(1);
-  }
+function getRandomAmount(max) {
+  const amount = Math.random() * (max - 0.5) + 0.5;
+  return parse(amount.toFixed(3));
 }
 
 async function approveIfNeeded(token, name, spender) {
@@ -164,14 +121,13 @@ async function swap(tokenIn, tokenOut, amount, label) {
     stats.swaps++;
     log(`✅ Swap terminé (${label})`);
   } catch (err) {
-    log(`❌ Échec swap ${label} : ${err.message}`);
+    log(`❌ Erreur swap ${label} : ${err.message}`);
   }
 }
 
 async function addLiquidity(amount0, amount1) {
   await approveIfNeeded(pol, "POL", NFT_POSITION_MANAGER);
   await approveIfNeeded(xin, "XIN", NFT_POSITION_MANAGER);
-
   try {
     const tx = await nftManager.increaseLiquidity({
       tokenId: stats.nftId,
@@ -182,67 +138,63 @@ async function addLiquidity(amount0, amount1) {
       deadline: Math.floor(Date.now() / 1000) + 600
     });
     await tx.wait();
-    log(`💧 Liquidité augmentée pour NFT ID: ${stats.nftId}`);
+    log(`💧 Liquidité ajoutée au NFT ID ${stats.nftId}`);
   } catch (err) {
-    log(`⚠️ Erreur ajout liquidité : ${err.message}`);
+    log(`⚠️ Ajout liquidité échoué : ${err.message}`);
   }
 }
 
-async function removeLiquidity(nftId) {
-  if (!nftId) return;
-  const tx = await nftManager.decreaseLiquidity({
-    tokenId: nftId,
-    liquidity: 100000,
-    amount0Min: 0,
-    amount1Min: 0,
-    deadline: Math.floor(Date.now() / 1000) + 600
-  });
-  await tx.wait();
-  log("💸 Liquidité retirée");
-}
-
-function getRandomAmount(max) {
-  const min = 1;
-  const maxInt = parseFloat(max);
-  const amount = Math.random() * (maxInt - min) + min;
-  return parse(amount.toFixed(3));
+async function removeLiquidity() {
+  try {
+    const tx = await nftManager.decreaseLiquidity({
+      tokenId: stats.nftId,
+      liquidity: 100000,
+      amount0Min: 0,
+      amount1Min: 0,
+      deadline: Math.floor(Date.now() / 1000) + 600
+    });
+    await tx.wait();
+    log("💸 Liquidité retirée du NFT existant");
+  } catch (err) {
+    log(`❌ Retrait liquidité échoué : ${err.message}`);
+  }
 }
 
 async function loop() {
   await approveIfNeeded(pol, "POL", ROUTER);
   await approveIfNeeded(xin, "XIN", ROUTER);
   stats.initialPol = await pol.balanceOf(wallet.address);
-  stats.initialXIN = await xin.balanceOf(wallet.address);
-  log("🤖 XiBot v10 actif avec Uniswap V3 Liquidity Manager");
+  log("🤖 XiBot v10 intelligent en exécution");
 
   while (true) {
     autoRestartCheck();
     const polBalance = await pol.balanceOf(wallet.address);
     const xinBalance = await xin.balanceOf(wallet.address);
-    const polVariation = polBalance - stats.initialPol;
 
-    if (polVariation > PROFIT_REINJECTION_THRESHOLD) {
-      await addLiquidity(parse("1.5"), parse("300"));
-    }
+    const now = Date.now();
 
-    const rand = Math.random();
-    if (rand < 0.5 && polBalance > parse("5")) {
-      const amount = getRandomAmount(6);
-      await swap(POL, XIN, amount, "POL → XIN (random)");
+    if (polBalance > parse("10")) {
+      log("💰 Wallet POL atteint 10 - désactivation des achats de XIN");
+    } else if (now >= nextPump && polBalance > parse("1")) {
+      const amount = getRandomAmount(5);
+      await swap(POL, XIN, amount, "PUMP POL → XIN");
+      nextPump = now + 2 * 60 * 60 * 1000;
+    } else if (now >= nextDump && xinBalance > parse("10")) {
+      const amount = getRandomAmount(5);
+      await swap(XIN, POL, amount, "DUMP XIN → POL");
+      nextDump = now + 4 * 60 * 60 * 1000;
+    } else if (Math.random() < 0.5 && polBalance > parse("1")) {
+      const amount = getRandomAmount(3);
+      await swap(POL, XIN, amount, "Swap aléatoire POL → XIN");
     } else if (xinBalance > parse("10")) {
-      const amount = getRandomAmount(6);
-      await swap(XIN, POL, amount, "XIN → POL (random)");
+      const amount = getRandomAmount(3);
+      await swap(XIN, POL, amount, "Swap aléatoire XIN → POL");
     }
 
-    if (Date.now() - stats.lastStats > 60 * 60 * 1000) {
-      const currentPOL = await pol.balanceOf(wallet.address);
-      const pnl = currentPOL - stats.initialPol;
-      performanceData.push({
-        time: new Date().toISOString().slice(11, 19),
-        pnl: Number(format(pnl))
-      });
-      await generateChart();
-      stats.lastStats = Date.now();
+    if (stats.swaps % 10 === 0 && polBalance > parse("2")) {
+      await addLiquidity(parse("1"), parse("300"));
+    } else if (polBalance < parse("1")) {
+      await removeLiquidity();
     }
 
     await delay(60000);
@@ -253,5 +205,5 @@ loop();
 
 http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("✅ XiBot v10 actif avec stratégie dynamique + liquidité Uniswap + chart Telegram");
+  res.end("✅ XiBot v10 stratégique actif avec PUMP/DUMP & Uniswap V3");
 }).listen(process.env.PORT || 3000);
