@@ -1,6 +1,8 @@
- // ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
+// ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
 import dotenv from "dotenv";
 import { ethers } from "ethers";
+import { MaxUint256 } from "ethers";
+
 import { createRequire } from 'module'; 
 const require = createRequire(import.meta.url);
 
@@ -8,6 +10,9 @@ const NonfungiblePositionManagerABI = require('@uniswap/v3-periphery/artifacts/c
 
 import https from "https";
 import http from "http";
+import fs from "fs";
+import { ChartJSNodeCanvas } from "chartjs-node-canvas";
+import FormData from "form-data";
 import axios from "axios";
 
 dotenv.config();
@@ -87,8 +92,8 @@ async function harvestFees() {
     const tx = await nftManager.collect({
       tokenId: stats.nftId,
       recipient: wallet.address,
-      amount0Max: ethers.MaxUint256,
-      amount1Max: ethers.MaxUint256
+      amount0Max: MaxUint256,
+      amount1Max: MaxUint256
     });
     await tx.wait();
     log(`🧾 Fees collectés sur NFT ID ${stats.nftId}`);
