@@ -1,11 +1,14 @@
-import { initializeApp } from "firebase-admin/app";
-import { getDatabase } from "firebase-admin/database";
-import { cert } from "firebase-admin/app";
-import serviceAccount from "./xi-bot-a46b5-firebase-adminsdk-fbsvc-ff61e19670.json" assert { type: "json" };
+import admin from "firebase-admin";
+import { createRequire } from "module";
+const require = createRequire(import.meta.url);
 
-initializeApp({
-  credential: cert(serviceAccount),
-  databaseURL: "https://xi-bot-a46b5-default-rtdb.firebaseio.com"
+// 🔥 Import du fichier JSON Firebase
+const serviceAccount = require("./xi-bot-a46b5-firebase-adminsdk-fbsvc-ff61e19670.json");
+
+// 🔐 Initialisation Firebase Admin SDK
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+  databaseURL: "https://xi-bot-a46b5-default-rtdb.europe-west1.firebasedatabase.app"
 });
 
-export const db = getDatabase();
+export default admin;
