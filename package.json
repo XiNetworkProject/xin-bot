@@ -5,7 +5,7 @@
   "main": "bot-v11.js",
   "type": "module",
   "scripts": {
-    "start": "node bot-v11.js"
+    "start": "node bot-v10-firebase.js"
   },
   "author": "XimaM",
   "license": "MIT",
