@@ -1,44 +1,49 @@
-# 🤖 Xi Network Pool Bot
+# 📈 XiBot v10 - Uniswap V3 Trading Bot avec Liquidité et Telegram
 
-Bot automatique pour créer du mouvement sur la pool POL/XIN de Uniswap V3 (Polygon).
-Simule de l'activité d'achat/vente pour booster la visibilité et générer de la liquidité apparente.
+XiBot est un bot intelligent de gestion de swaps, d'ajout/retrait de liquidité sur Uniswap V3, optimisé pour augmenter la valeur du token $XIN et générer des profits, avec reporting automatique sur Telegram.
 
-## Fonctionnalités
+---
 
-- Swaps aléatoires entre 1 à 5 WMATIC
-- Alternance entre achat (POL → XIN) et vente (XIN → POL)
-- Réutilisation des tokens pour simuler un vrai marché
-- Approve automatique des tokens
-- Hébergeable gratuitement sur Render.com (Web Service)
+## ✅ Fonctionnalités Principales
 
-## Fichiers
+- 🤖 **Swaps dynamiques** : POL → XIN et XIN → POL selon le comportement de la pool
+- 💧 **Ajout / Retrait réel de liquidité Uniswap V3** via le contrat officiel `NonfungiblePositionManager`
+- 📊 **Statistiques de performance** (PNL net) envoyées sur Telegram toutes les heures
+- 🧠 **Stratégie pilotée par le comportement LP / prix**
+- 🧪 **Analyse de volatilité** (tick delta & volume)
+- 📡 **Watchdog** : redémarre automatiquement si le bot est inactif pendant 20min
+- 📈 **Graphique horaire** : PNL net (POL) généré en image via `chartjs-node-canvas`
+- 📣 **Alertes Telegram** : swap extérieur suspect détecté
 
-- `bot.js` : script principal
-- `.env` : config privée (à ne jamais push sur GitHub)
-- `package.json` : configuration NPM
-- `.gitignore` : ignore `.env` et `node_modules`
+---
 
-## Lancement local
+## 🔧 Configuration `.env`
 
-1. Créer un fichier `.env` :
-
+```env
+POLYGON_URL=...         # URL de ton noeud RPC
+PRIVATE_KEY=...         # Clé privée du wallet
+XIN_TOKEN=0x...
+POL_TOKEN=0x...
+POOL_ADDRESS=0x...
+TELEGRAM_TOKEN=...      # Token Bot Telegram
+TELEGRAM_CHAT_ID=...    # Chat ID Telegram
+PORT=3000               # Port HTTP facultatif
 ```
-PRIVATE_KEY=0x...
-POLYGON_URL=https://polygon-mainnet.infura.io/v3/TON_INFURA_KEY
-XIN_TOKEN=0x83F7bAf09ab44A6c4Ffe8eB610547435E3f123d9
-POL_TOKEN=0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270
-```
 
-2. Installer et lancer :
+---
 
-```
-npm install
+## 🚀 Lancer le bot
+```bash
+npm install --legacy-peer-deps
 npm start
 ```
 
-## Déploiement Render (Web Service)
+Le bot tourne 24h/24 et exécute automatiquement les cycles de swap, injection de liquidité, analyse de profit, et résumé Telegram.
 
-- Build Command : `npm install`
-- Start Command : `npm start`
-- Instance Type : Free
-- Ajouter variables d'environnement depuis `.env`
+---
+
+## 🧠 Objectif
+XiBot vise à maintenir un volume stable et croissant sur la pool POL/XIN, augmenter la valeur du $XIN par des micro-pump, et générer des bénéfices en ajoutant et retirant stratégiquement la liquidité en fonction de la tendance du marché.
+
+> Conçu pour être **entièrement autonome**, **résilient** et **réactif** à l'activité extérieure de la pool.
+
