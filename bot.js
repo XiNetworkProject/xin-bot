@@ -1,3 +1,4 @@
+// XiBot v9 - Profit Engine Mode 💸
 import dotenv from "dotenv";
 import { ethers } from "ethers";
 import http from "http";
@@ -32,45 +33,30 @@ const xinToken = new ethers.Contract(XIN, erc20Abi, wallet);
 const pool = new ethers.Contract(POL, erc20Abi, provider);
 
 const MIN_POOL_RESERVE = ethers.parseEther("30");
+let stats = { xinBought: 0n, xinSold: 0n, polUsed: 0n, polGained: 0n };
+let lastStats = Date.now();
 
 function delay(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 function randomAmount(min = 1, max = 5) {
-  const random = Math.random() * (max - min) + min;
-  return ethers.parseEther(random.toFixed(2));
-}
-function randomDelay(min = 60000, max = 180000) {
-  return Math.floor(Math.random() * (max - min + 1)) + min;
+  return ethers.parseEther((Math.random() * (max - min) + min).toFixed(2));
 }
 function sendTelegram(message) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(message)}`;
-  https.get(url, (res) => {
-    res.on("data", () => {});
-  }).on("error", (err) => {
-    console.error("❌ Erreur envoi Telegram:", err.message);
-  });
+  https.get(url, () => {});
+}
+function format(x) {
+  return Number(ethers.formatEther(x)).toFixed(2);
 }
 
 async function checkApproval(token, name) {
-  try {
-    const allowance = await token.allowance(wallet.address, ROUTER_ADDRESS);
-    if (allowance < ethers.parseEther("1")) {
-      console.log(`🔐 Approbation requise pour ${name}. Envoi...`);
-      const tx = await token.approve(ROUTER_ADDRESS, ethers.MaxUint256);
-      await tx.wait();
-      console.log(`✅ ${name} approuvé.`);
-    }
-  } catch (err) {
-    console.log(`⚠️ Erreur allowance() pour ${name}, tentative d’approbation forcée...`);
-    try {
-      const tx = await token.approve(ROUTER_ADDRESS, ethers.MaxUint256);
-      await tx.wait();
-      console.log(`✅ ${name} approuvé (sans vérif).`);
-    } catch (e) {
-      console.error(`❌ Échec approbation ${name} : ${e.message}`);
-      sendTelegram(`❌ Échec approbation ${name} : ${e.message}`);
-    }
+  const allowance = await token.allowance(wallet.address, ROUTER_ADDRESS);
+  if (allowance < ethers.parseEther("1")) {
+    console.log(`🔐 Approbation ${name}...`);
+    const tx = await token.approve(ROUTER_ADDRESS, ethers.MaxUint256);
+    await tx.wait();
+    console.log(`✅ ${name} approuvé.`);
   }
 }
 
@@ -79,7 +65,6 @@ async function getWmaticInPool() {
 }
 
 async function swap(tokenIn, tokenOut, amountIn, label) {
-  console.log(`🔁 Swapping ${ethers.formatEther(amountIn)} ${label}`);
   try {
     const tx = await router.exactInputSingle([
       tokenIn,
@@ -92,95 +77,84 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       0
     ], { gasLimit: 500000 });
     await tx.wait();
-    const msg = `✅ Swap effectué : ${ethers.formatEther(amountIn)} ${label}`;
+
+    if (label.includes("POL → XIN")) {
+      stats.polUsed += amountIn;
+      stats.xinBought += amountIn;
+    } else {
+      stats.xinSold += amountIn;
+      stats.polGained += amountIn;
+    }
+
+    const msg = `✅ Swap : ${format(amountIn)} ${label}`;
     console.log(msg);
     sendTelegram(msg);
   } catch (err) {
-    const msg = `❌ Erreur lors du swap ${label}: ${err.message}`;
+    const msg = `❌ Swap raté ${label}: ${err.message}`;
     console.error(msg);
     sendTelegram(msg);
   }
 }
 
-async function randomSwap() {
+async function smartCycle() {
   const polBalance = await polToken.balanceOf(wallet.address);
   const xinBalance = await xinToken.balanceOf(wallet.address);
-  const safeLimit = ethers.parseEther("10");
   const poolBalance = await getWmaticInPool();
-  const direction = Math.random() < 0.5 ? "buy" : "sell";
-  const amount = randomAmount();
+  const safeLimit = ethers.parseEther("10");
 
-  if (direction === "buy") {
-    if (polBalance > safeLimit + amount) {
-      await swap(POL, XIN, amount, "POL → XIN (aléatoire)");
-    } else {
-      console.log("⚠️ Trop peu de POL pour achat aléatoire.");
-    }
+  const amount = randomAmount();
+  const shouldPump = Date.now() % (60 * 60 * 1000) < 60000;
+  const shouldDump = Date.now() % (3 * 60 * 60 * 1000) < 60000;
+
+  if (shouldPump && polBalance > safeLimit + amount) {
+    console.log("📈 Mini PUMP horaire en cours");
+    await swap(POL, XIN, amount, "POL → XIN (PUMP)");
+  } else if (shouldDump && xinBalance > amount && poolBalance > MIN_POOL_RESERVE) {
+    console.log("📉 Mini DUMP 3h en cours");
+    await swap(XIN, POL, amount, "XIN → POL (DUMP)");
+  } else if (Math.random() < 0.5 && polBalance > safeLimit + amount) {
+    await swap(POL, XIN, amount, "POL → XIN (random)");
+  } else if (xinBalance >= amount && poolBalance > MIN_POOL_RESERVE) {
+    await swap(XIN, POL, amount, "XIN → POL (random)");
   } else {
-    if (xinBalance >= amount && poolBalance > MIN_POOL_RESERVE) {
-      await swap(XIN, POL, amount, "XIN → POL (aléatoire)");
-    } else {
-      console.log("⚠️ Trop peu de XIN ou pool faible pour vente aléatoire.");
-    }
+    console.log("⏳ Rien à faire pour l’instant.");
+  }
+}
+
+async function postStatsIfNeeded() {
+  const now = Date.now();
+  if (now - lastStats > 30 * 60 * 1000) {
+    const msg = `📊 Stats XiBot v9
+XIN acheté: ${format(stats.xinBought)}
+XIN vendu: ${format(stats.xinSold)}
+POL utilisé: ${format(stats.polUsed)}
+POL gagné: ${format(stats.polGained)}`;
+    sendTelegram(msg);
+    lastStats = now;
   }
 }
 
 async function loop() {
   await checkApproval(polToken, "POL (WMATIC)");
   await checkApproval(xinToken, "XIN");
+  sendTelegram("🤖 XiBot v9 activé — optimisation auto des swaps.");
 
   while (true) {
     try {
-      const polBalance = await polToken.balanceOf(wallet.address);
-      const xinBalance = await xinToken.balanceOf(wallet.address);
-      const safeLimit = ethers.parseEther("10");
-      const poolBalance = await getWmaticInPool();
-
-      if (polBalance > safeLimit + ethers.parseEther("1")) {
-        const cycle = Math.floor(Math.random() * 3) + 1;
-        console.log(`[PUMP] Achat x${cycle}`);
-        for (let i = 0; i < cycle; i++) {
-          const amount = randomAmount();
-          const remaining = await polToken.balanceOf(wallet.address);
-          if ((remaining - amount) >= safeLimit) {
-            await swap(POL, XIN, amount, "POL → XIN");
-            await delay(2000);
-          } else {
-            console.log("⚠️ Seuil de sécurité atteint, stop achat");
-            break;
-          }
-        }
-      } else if (xinBalance > ethers.parseEther("1")) {
-        console.log("[DUMP] Revente de XIN suite à manque de POL");
-        const amount = randomAmount();
-        if (poolBalance > MIN_POOL_RESERVE) {
-          await swap(XIN, POL, amount, "XIN → POL (auto)");
-        } else {
-          sendTelegram("⛔ Vente XIN bloquée : pool trop faible.");
-        }
-      } else {
-        console.log("⚠️ Pas assez de XIN pour dump");
-      }
-
-      await randomSwap();
-      await delay(randomDelay());
+      await smartCycle();
+      await postStatsIfNeeded();
+      await delay(Math.floor(Math.random() * 45000) + 45000); // 45s–90s
     } catch (err) {
-      const msg = `❌ Erreur dans la boucle : ${err.message}`;
-      console.error(msg);
-      sendTelegram(msg);
-      await delay(randomDelay());
+      console.error("⚠️ Erreur boucle:", err.message);
+      sendTelegram("❌ Erreur boucle: " + err.message);
+      await delay(60000);
     }
   }
 }
 
 loop();
 
-if (process.argv.includes("test")) {
-  sendTelegram("✅ Test réussi : votre bot XIN est bien connecté à Telegram !");
-  process.exit(0);
-}
-
 http.createServer((req, res) => {
   res.writeHead(200);
-  res.end("Bot XIN v8.1 actif (pump/dump + aléatoire + Telegram)");
+  res.end("XiBot v9 actif — auto-swap & profit tracker");
 }).listen(process.env.PORT || 3000);

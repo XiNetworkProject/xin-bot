@@ -1,13 +1,18 @@
 {
-  "name": "xin-bot-v9",
+  "name": "xin-bot-v10",
   "version": "1.0.0",
   "type": "module",
-  "main": "bot-v9.js",
+  "main": "bot-v10.js",
   "scripts": {
-    "start": "node bot-v9.js"
+    "start": "node bot-v10.js"
   },
   "dependencies": {
-    "dotenv": "^16.0.0",
-    "ethers": "^6.0.0"
+    "axios": "^1.6.8",
+    "canvas": "^3.1.0",
+    "chart.js": "^4.4.8",
+    "chartjs-node-canvas": "^4.1.7",
+    "form-data": "^4.0.0",
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.5"
   }
 }
