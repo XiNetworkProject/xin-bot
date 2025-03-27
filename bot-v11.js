@@ -1,7 +1,7 @@
 // ✅ XiBot v10 amélioré - stratégie intelligente Pump/Dump, ajout/retrait dynamique de liquidité
 import dotenv from "dotenv";
 import { ethers } from "ethers";
-import { Interface } from "ethers/lib/utils";
+import { ethers } from "ethers";
 import { MaxUint256 } from "ethers";
 
 import { createRequire } from 'module'; 
@@ -128,7 +128,6 @@ async function approveIfNeeded(token, name, spender) {
   }
 }
 
-
 async function swap(tokenIn, tokenOut, amount, label) {
   const polBalance = await wpol.balanceOf(wallet.address);
   if (tokenIn === WPOL && polBalance < parse("10")) {
@@ -142,7 +141,8 @@ async function swap(tokenIn, tokenOut, amount, label) {
   try {
     await approveIfNeeded(tokenIn === WPOL ? wpol : xin, label, ROUTER);
 
-    const iface = new Interface([
+    // ✅ ICI on crée l'interface d'Uniswap
+    const iface = new ethers.Interface([
       "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
     ]);
 
@@ -175,7 +175,6 @@ async function swap(tokenIn, tokenOut, amount, label) {
 
     stats.swaps++;
     log(`✅ Swap terminé (${label})`);
-
   } catch (err) {
     log(`❌ Erreur swap ${label} : ${err.message}`);
   }
