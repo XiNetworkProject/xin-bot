@@ -26,7 +26,6 @@ const ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 const NFT_POSITION_MANAGER = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88";
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
-const NFT_ID = process.env.NFT_ID; // Ajout de l'ID NFT directement depuis le fichier .env
 
 const erc20Abi = [
   "function approve(address spender, uint256 amount) external returns (bool)",
@@ -58,7 +57,7 @@ let stats = {
   swaps: 0,
   lastActivity: Date.now(),
   lastStats: Date.now(),
-  nftId: NFT_ID,  // Utilisation de l'ID NFT récupéré depuis .env
+  nftId: process.env.NFT_ID, // Charger directement l'ID NFT depuis le .env
   initialPol: 0n
 };
 
@@ -169,27 +168,44 @@ async function swap(tokenIn, tokenOut, amount, label) {
 }
 
 async function addLiquidity(amount0, amount1) {
-  await approveIfNeeded(pol, "POL", NFT_POSITION_MANAGER);
-  await approveIfNeeded(xin, "XIN", NFT_POSITION_MANAGER);
+  if (stats.nftId) {
+    // Si le NFT existe, réutiliser ce NFT pour ajouter de la liquidité
+    log(`🔄 Réutilisation du NFT ID: ${stats.nftId} pour ajouter de la liquidité`);
+    const tx = await nftManager.increaseLiquidity({
+      tokenId: stats.nftId,
+      amount0Desired: amount0,
+      amount1Desired: amount1,
+      amount0Min: 0,
+      amount1Min: 0,
+      deadline: Math.floor(Date.now() / 1000) + 600
+    });
+    await tx.wait();
+    log(`💧 Liquidité ajoutée au NFT existant!`);
+  } else {
+    // Si le NFT n'existe pas, en créer un nouveau
+    log(`🆕 Création d'un nouveau NFT pour ajouter de la liquidité`);
+    await approveIfNeeded(pol, "POL", NFT_POSITION_MANAGER);
+    await approveIfNeeded(xin, "XIN", NFT_POSITION_MANAGER);
 
-  const tx = await nftManager.mint({
-    token0: POL,
-    token1: XIN,
-    fee: 3000,
-    tickLower: -600,
-    tickUpper: 600,
-    amount0Desired: amount0,
-    amount1Desired: amount1,
-    amount0Min: 0,
-    amount1Min: 0,
-    recipient: wallet.address,
-    deadline: Math.floor(Date.now() / 1000) + 600
-  });
-  const receipt = await tx.wait();
-  const event = receipt.logs.find(x => x.fragment.name === "IncreaseLiquidity");
-  if (event) {
-    stats.nftId = Number(event.args.tokenId);
-    log(`💧 Liquidité ajoutée ! NFT ID: ${stats.nftId}`);
+    const tx = await nftManager.mint({
+      token0: POL,
+      token1: XIN,
+      fee: 3000,
+      tickLower: -600,
+      tickUpper: 600,
+      amount0Desired: amount0,
+      amount1Desired: amount1,
+      amount0Min: 0,
+      amount1Min: 0,
+      recipient: wallet.address,
+      deadline: Math.floor(Date.now() / 1000) + 600
+    });
+    const receipt = await tx.wait();
+    const event = receipt.logs.find(x => x.fragment.name === "IncreaseLiquidity");
+    if (event) {
+      stats.nftId = Number(event.args.tokenId);
+      log(`💧 Liquidité ajoutée ! NFT ID: ${stats.nftId}`);
+    }
   }
 }
 
