@@ -19,7 +19,7 @@ const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
 const XIN = process.env.XIN_TOKEN;
-const WPOL = process.env.POL_TOKEN; // Remplacé POL par WPOL
+const WPOL = process.env.POL_TOKEN;
 const POOL_ADDRESS = process.env.POOL_ADDRESS;
 const ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 const NFT_POSITION_MANAGER = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88";
@@ -97,6 +97,12 @@ async function approveIfNeeded(token, name, spender) {
 }
 
 async function swap(tokenIn, tokenOut, amount, label) {
+  const polBalance = await wpol.balanceOf(wallet.address);
+  if (tokenIn === WPOL && polBalance < parse("10")) {
+    log("❌ Swap annulé : pas assez de WPOL pour acheter du XIN");
+    return;
+  }
+
   log(`🔁 Swap ${label} : ${format(amount)} tokens`);
   try {
     await approveIfNeeded(tokenIn === WPOL ? wpol : xin, label, ROUTER);
@@ -181,9 +187,7 @@ async function loop() {
 
     const now = Date.now();
 
-    if (polBalance > parse("10")) {
-      log("💰 Wallet POL atteint 10 - désactivation des achats de XIN");
-    } else if (now >= nextPump && polBalance > parse("1")) {
+    if (now >= nextPump && polBalance > parse("10")) {
       const amount = getRandomAmount(5);
       await swap(WPOL, XIN, amount, "PUMP POL → XIN");
       nextPump = now + 2 * 60 * 60 * 1000;
@@ -191,7 +195,7 @@ async function loop() {
       const amount = getRandomAmount(5);
       await swap(XIN, WPOL, amount, "DUMP XIN → POL");
       nextDump = now + 4 * 60 * 60 * 1000;
-    } else if (Math.random() < 0.5 && polBalance > parse("1")) {
+    } else if (Math.random() < 0.5 && polBalance > parse("10")) {
       const amount = getRandomAmount(3);
       await swap(WPOL, XIN, amount, "Swap aléatoire POL → XIN");
     } else if (xinBalance > parse("10")) {
@@ -199,8 +203,8 @@ async function loop() {
       await swap(XIN, WPOL, amount, "Swap aléatoire XIN → POL");
     }
 
-    if (stats.swaps % 10 === 0 && polBalance > parse("2")) {
-      await addLiquidity(parse("1"), parse("300"));
+    if (stats.swaps % 10 === 0 && polBalance > parse("3") && xinBalance > parse("100")) {
+      await addLiquidity(parse("2"), parse("500"));
     } else if (polBalance < parse("1")) {
       await removeLiquidity();
     }
