@@ -13,6 +13,8 @@ import http from "http";
 import axios from "axios";
 
 dotenv.config();
+const MAX_UINT256 = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
 
 const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
@@ -89,8 +91,8 @@ async function harvestFees() {
     const tx = await nftManager.collect({
       tokenId: stats.nftId,
       recipient: wallet.address,
-      amount0Max: MaxUint256,
-      amount1Max: MaxUint256
+      amount0Max: MAX_UINT256,
+      amount1Max: MAX_UINT256
     });
     await tx.wait();
     log(`🧾 Fees collectés sur NFT ID ${stats.nftId}`);
@@ -133,18 +135,20 @@ async function swap(tokenIn, tokenOut, amount, label) {
   }
 
   log(`🔁 Swap ${label} : ${format(amount)} tokens`);
+  console.log("🔍 DEBUG swap params:", { tokenIn, tokenOut, amount: format(amount), label });
   try {
     await approveIfNeeded(tokenIn === WPOL ? wpol : xin, label, ROUTER);
-    const tx = await router.exactInputSingle([
+    const params = {
       tokenIn,
       tokenOut,
-      3000,
-      wallet.address,
-      Math.floor(Date.now() / 1000) + 600,
-      amount,
-      0,
-      0
-    ]);
+      fee: 3000,
+      recipient: wallet.address,
+      deadline: Math.floor(Date.now() / 1000) + 600,
+      amountIn: amount,
+      amountOutMinimum: 0,
+      sqrtPriceLimitX96: 0
+    };
+    const tx = await router.exactInputSingle(params);
     await tx.wait();
     if (label.includes("POL → XIN")) {
       stats.xinBought += amount;
