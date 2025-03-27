@@ -19,7 +19,7 @@ const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
 const XIN = process.env.XIN_TOKEN;
-const POL = process.env.POL_TOKEN;
+const WPOL = process.env.POL_TOKEN; // Remplacé POL par WPOL
 const POOL_ADDRESS = process.env.POOL_ADDRESS;
 const ROUTER = "0xE592427A0AEce92De3Edee1F18E0157C05861564";
 const NFT_POSITION_MANAGER = "0xC36442b4a4522E871399CD717aBDD847Ab11FE88";
@@ -38,7 +38,7 @@ const routerAbi = [
 ];
 
 const xin = new ethers.Contract(XIN, erc20Abi, wallet);
-const pol = new ethers.Contract(POL, erc20Abi, wallet);
+const wpol = new ethers.Contract(WPOL, erc20Abi, wallet);
 const router = new ethers.Contract(ROUTER, routerAbi, wallet);
 const nftManager = new ethers.Contract(NFT_POSITION_MANAGER, NonfungiblePositionManagerABI.abi, wallet);
 
@@ -54,11 +54,12 @@ let stats = {
   initialPol: 0n
 };
 
+let performanceData = [];
 let nextPump = Date.now() + 2 * 60 * 60 * 1000;
 let nextDump = Date.now() + 4 * 60 * 60 * 1000;
 
 function delay(ms) {
-  return new Promise(res => setTimeout(res, ms));
+  return new Promise((res) => setTimeout(res, ms));
 }
 
 function parse(x) {
@@ -85,13 +86,6 @@ function getRandomAmount(max) {
   return parse(amount.toFixed(3));
 }
 
-function autoRestartCheck() {
-  if (Date.now() - stats.lastActivity > 20 * 60 * 1000) {
-    log("⏱️ Redémarrage automatique après inactivité.");
-    process.exit(1);
-  }
-}
-
 async function approveIfNeeded(token, name, spender) {
   const allowance = await token.allowance(wallet.address, spender);
   if (allowance < parse("10000")) {
@@ -103,13 +97,9 @@ async function approveIfNeeded(token, name, spender) {
 }
 
 async function swap(tokenIn, tokenOut, amount, label) {
-  const balance = await (tokenIn === POL ? pol : xin).balanceOf(wallet.address);
-  if (balance < amount) {
-    log(`⚠️ Solde insuffisant pour swap ${label}`);
-    return;
-  }
+  log(`🔁 Swap ${label} : ${format(amount)} tokens`);
   try {
-    await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
+    await approveIfNeeded(tokenIn === WPOL ? wpol : xin, label, ROUTER);
     const tx = await router.exactInputSingle([
       tokenIn,
       tokenOut,
@@ -132,12 +122,11 @@ async function swap(tokenIn, tokenOut, amount, label) {
     log(`✅ Swap terminé (${label})`);
   } catch (err) {
     log(`❌ Erreur swap ${label} : ${err.message}`);
-    console.error(err);
   }
 }
 
 async function addLiquidity(amount0, amount1) {
-  await approveIfNeeded(pol, "POL", NFT_POSITION_MANAGER);
+  await approveIfNeeded(wpol, "WPOL", NFT_POSITION_MANAGER);
   await approveIfNeeded(xin, "XIN", NFT_POSITION_MANAGER);
   try {
     const tx = await nftManager.increaseLiquidity({
@@ -171,34 +160,43 @@ async function removeLiquidity() {
   }
 }
 
+function autoRestartCheck() {
+  const now = Date.now();
+  if (now - stats.lastActivity > 20 * 60 * 1000) {
+    log("⏱️ Inactivité détectée >20min. Redémarrage recommandé.");
+    process.exit(1);
+  }
+}
+
 async function loop() {
-  await approveIfNeeded(pol, "POL", ROUTER);
+  await approveIfNeeded(wpol, "WPOL", ROUTER);
   await approveIfNeeded(xin, "XIN", ROUTER);
-  stats.initialPol = await pol.balanceOf(wallet.address);
+  stats.initialPol = await wpol.balanceOf(wallet.address);
   log("🤖 XiBot v10 intelligent en exécution");
 
   while (true) {
     autoRestartCheck();
-    const polBalance = await pol.balanceOf(wallet.address);
+    const polBalance = await wpol.balanceOf(wallet.address);
     const xinBalance = await xin.balanceOf(wallet.address);
+
     const now = Date.now();
 
     if (polBalance > parse("10")) {
       log("💰 Wallet POL atteint 10 - désactivation des achats de XIN");
     } else if (now >= nextPump && polBalance > parse("1")) {
       const amount = getRandomAmount(5);
-      await swap(POL, XIN, amount, "PUMP POL → XIN");
+      await swap(WPOL, XIN, amount, "PUMP POL → XIN");
       nextPump = now + 2 * 60 * 60 * 1000;
     } else if (now >= nextDump && xinBalance > parse("10")) {
       const amount = getRandomAmount(5);
-      await swap(XIN, POL, amount, "DUMP XIN → POL");
+      await swap(XIN, WPOL, amount, "DUMP XIN → POL");
       nextDump = now + 4 * 60 * 60 * 1000;
     } else if (Math.random() < 0.5 && polBalance > parse("1")) {
       const amount = getRandomAmount(3);
-      await swap(POL, XIN, amount, "Swap aléatoire POL → XIN");
+      await swap(WPOL, XIN, amount, "Swap aléatoire POL → XIN");
     } else if (xinBalance > parse("10")) {
       const amount = getRandomAmount(3);
-      await swap(XIN, POL, amount, "Swap aléatoire XIN → POL");
+      await swap(XIN, WPOL, amount, "Swap aléatoire XIN → POL");
     }
 
     if (stats.swaps % 10 === 0 && polBalance > parse("2")) {
