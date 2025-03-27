@@ -1,9 +1,11 @@
 // ✅ XiBot v10 - avec ajout/retrait réel de liquidité Uniswap V3 + graphique Telegram
 import dotenv from "dotenv";
 import { ethers } from "ethers";
-import { createRequire } from "module";
+import { createRequire } from 'module'; 
 const require = createRequire(import.meta.url);
-const NonfungiblePositionManager = require("@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json");
+
+// Charger l'ABI de NonfungiblePositionManager
+const NonfungiblePositionManagerABI = require('@uniswap/v3-periphery/artifacts/contracts/NonfungiblePositionManager.sol/NonfungiblePositionManager.json');
 
 import https from "https";
 import http from "http";
@@ -46,7 +48,7 @@ const xin = new ethers.Contract(XIN, erc20Abi, wallet);
 const pol = new ethers.Contract(POL, erc20Abi, wallet);
 const router = new ethers.Contract(ROUTER, routerAbi, wallet);
 const pool = new ethers.Contract(POOL_ADDRESS, poolAbi, provider);
-const nftManager = new ethers.Contract(NFT_POSITION_MANAGER, NonfungiblePositionManagerABI, wallet);
+const nftManager = new ethers.Contract(NFT_POSITION_MANAGER, NonfungiblePositionManagerABI.abi, wallet);
 
 let stats = {
   polUsed: 0n,
