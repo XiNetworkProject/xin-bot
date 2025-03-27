@@ -1,4 +1,4 @@
-// ✅ XiBot v11 - version Firebase-compatible synchronisée pour multi-bots avec vrais swaps
+// ✅ XiBot v11 Firebase - Uniswap V3 avec vrais swaps, synchronisé multi-bots
 
 import dotenv from "dotenv";
 dotenv.config({ path: process.argv.find(f => f.includes('.env')) || '.env' });
@@ -7,7 +7,6 @@ import { ethers } from "ethers";
 import { db } from "./firebase.js";
 import https from "https";
 import http from "http";
-import axios from "axios";
 
 const BOT_ID = process.env.BOT_ID || "bot1";
 const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
@@ -15,8 +14,7 @@ const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 
 const XIN = process.env.XIN_TOKEN;
 const WPOL = process.env.POL_TOKEN;
-const ROUTER = process.env.ROUTER;
-const NFT_ID = parseInt(process.env.NFT_ID || "2482320");
+const ROUTER_ADDRESS = process.env.ROUTER;
 const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
@@ -26,81 +24,78 @@ const erc20Abi = [
   "function balanceOf(address account) external view returns (uint256)"
 ];
 
+const routerAbi = [
+  "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
+];
+
 const xin = new ethers.Contract(XIN, erc20Abi, wallet);
 const wpol = new ethers.Contract(WPOL, erc20Abi, wallet);
+const router = new ethers.Contract(ROUTER_ADDRESS, routerAbi, wallet);
 
 function parse(x) {
   return ethers.parseEther(x.toString());
 }
 function format(x) {
-  return ethers.formatEther(x);
+  return Number(ethers.formatEther(x)).toFixed(2);
 }
 function delay(ms) {
   return new Promise(res => setTimeout(res, ms));
 }
 
-function log(msg) {
-  console.log(`[${BOT_ID}] ${msg}`);
-  sendTelegram(`[${BOT_ID}] ${msg}`);
-  db.ref(`/xibot/bots/${BOT_ID}/lastSwap`).set(Date.now());
-}
-
 function sendTelegram(msg) {
-  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(msg)}`;
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent("[" + BOT_ID + "] " + msg)}`;
   https.get(url, () => {});
 }
 
-async function approveIfNeeded(token, label, spender) {
-  const allowance = await token.allowance(wallet.address, spender);
-  if (allowance < parse("10000")) {
-    const tx = await token.approve(spender, ethers.MaxUint256);
+async function approveIfNeeded(token, name) {
+  const allowance = await token.allowance(wallet.address, ROUTER_ADDRESS);
+  if (allowance < parse("1")) {
+    const tx = await token.approve(ROUTER_ADDRESS, ethers.MaxUint256);
     await tx.wait();
-    log(`🔐 Approbation ${label}`);
+    sendTelegram(`🔐 Approbation ${name}`);
   }
 }
 
-function getRandomAmount(max) {
-  const amount = Math.random() * (max - 0.5) + 0.5;
-  return parse(amount.toFixed(3));
+function getRandomAmount(min = 1, max = 5) {
+  return parse((Math.random() * (max - min) + min).toFixed(2));
 }
 
 async function doSwap(direction) {
-  const amount = getRandomAmount(3);
+  const amount = getRandomAmount();
   const tokenIn = direction === "buy" ? WPOL : XIN;
   const tokenOut = direction === "buy" ? XIN : WPOL;
 
-  await approveIfNeeded(direction === "buy" ? wpol : xin, direction.toUpperCase(), ROUTER);
+  const gasCheck = await provider.getBalance(wallet.address);
+  if (gasCheck < parse("0.01")) {
+    sendTelegram("❌ Pas assez de MATIC natif pour le gas, swap annulé.");
+    return;
+  }
 
-  const iface = new ethers.Interface([
-    "function exactInputSingle((address tokenIn,address tokenOut,uint24 fee,address recipient,uint256 deadline,uint256 amountIn,uint256 amountOutMinimum,uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
-  ]);
-
-  const data = iface.encodeFunctionData("exactInputSingle", [{
-    tokenIn,
-    tokenOut,
-    fee: 3000,
-    recipient: wallet.address,
-    deadline: Math.floor(Date.now() / 1000) + 600,
-    amountIn: amount,
-    amountOutMinimum: 0,
-    sqrtPriceLimitX96: 0
-  }]);
+  await approveIfNeeded(direction === "buy" ? wpol : xin, direction.toUpperCase());
 
   try {
-    const tx = await wallet.sendTransaction({
-      to: ROUTER,
-      data,
-      value: 0
-    });
+    const tx = await router.exactInputSingle([
+      tokenIn,
+      tokenOut,
+      3000,
+      wallet.address,
+      Math.floor(Date.now() / 1000) + 600,
+      amount,
+      0,
+      0
+    ], { gasLimit: 500000 });
+
     await tx.wait();
-    log(`🔁 Swap réussi (${direction === "buy" ? "POL → XIN" : "XIN → POL"})`);
+    sendTelegram(`✅ Swap effectué (${direction.toUpperCase()}) : ${format(amount)} tokens`);
   } catch (err) {
-    log(`❌ Erreur swap (${direction}): ${err.message}`);
+    sendTelegram(`❌ Erreur swap (${direction}): ${err.message}`);
   }
+
+  db.ref(`/xibot/bots/${BOT_ID}/lastSwap`).set(Date.now());
 }
 
 async function loop() {
-  log("🤖 XiBot v11 Firebase lancé");
+  sendTelegram("🤖 XiBot v11 Firebase lancé (réel swaps)");
   while (true) {
     const now = Date.now();
     const strategy = (await db.ref("/xibot/strategy").get()).val();
@@ -127,5 +122,5 @@ loop();
 
 http.createServer((req, res) => {
   res.writeHead(200);
-  res.end(`✅ XiBot Firebase actif [${BOT_ID}]`);
+  res.end(`✅ XiBot Firebase [${BOT_ID}] actif avec swaps réels`);
 }).listen(process.env.PORT || 3000);
