@@ -204,6 +204,7 @@ function autoRestartCheck() {
   }
 }
 
+
 async function loop() {
   await approveIfNeeded(wpol, "WPOL", ROUTER);
   await approveIfNeeded(xin, "XIN", ROUTER);
@@ -221,27 +222,17 @@ async function loop() {
       const amount = getRandomAmount(5);
       await swap(WPOL, XIN, amount, "PUMP POL → XIN");
       nextPump = now + 2 * 60 * 60 * 1000;
-    
-} }
-else if (now >= nextDump && xinBalance > parse("10")) {
-  const amountDump = getRandomAmount(5);
-  const price = await getXinPriceFromPool();
-  if (price !== null) {
-    const minAcceptable = Number(format(stats.lastBuyPrice || parse("1"))) * 1.05;
-    if (price >= minAcceptable) {
-      await swap(XIN, WPOL, amountDump, "DUMP XIN → POL rentable");
-    } else {
-      log(`💤 Vente annulée : prix actuel ${price.toFixed(4)} < prix cible ${minAcceptable.toFixed(4)}`);
-    }
-  }
-  nextDump = now + 4 * 60 * 60 * 1000;
-}
-else {
+    } else if (now >= nextDump && xinBalance > parse("10")) {
+      const amountDump = getRandomAmount(5);
+      const price = await getXinPriceFromPool();
+      if (price !== null) {
+        const minAcceptable = Number(format(stats.lastBuyPrice || parse("1"))) * 1.05;
+        if (price >= minAcceptable) {
+          await swap(XIN, WPOL, amountDump, "DUMP XIN → POL rentable");
+        } else {
           log(`💤 Vente annulée : prix actuel ${price.toFixed(4)} < prix cible ${minAcceptable.toFixed(4)}`);
         }
       }
-
-      const amount = getRandomAmount(5);
       nextDump = now + 4 * 60 * 60 * 1000;
     } else if (Math.random() < 0.5 && polBalance > parse("10")) {
       const amount = getRandomAmount(3);
@@ -257,7 +248,6 @@ else {
       await removeLiquidity();
     }
 
-    
     if (!stats.lastHarvest || now - stats.lastHarvest >= 6 * 60 * 60 * 1000) {
       stats.lastHarvest = now;
       await harvestFees();
@@ -266,6 +256,7 @@ else {
     await delay(60000);
   }
 }
+
 
 loop();
 
