@@ -57,6 +57,49 @@ let stats = {
 };
 
 let performanceData = [];
+
+// 📊 Statistiques Telegram toutes les heures
+let hourlyStats = {
+  start: Date.now(),
+  xinBought: 0n,
+  xinSold: 0n,
+  polUsed: 0n,
+  polGained: 0n
+};
+
+function resetHourlyStats() {
+  hourlyStats.start = Date.now();
+  hourlyStats.xinBought = 0n;
+  hourlyStats.xinSold = 0n;
+  hourlyStats.polUsed = 0n;
+  hourlyStats.polGained = 0n;
+}
+
+function updateHourlyStats(action, amount) {
+  if (action === "buy") {
+    hourlyStats.xinBought += amount;
+    hourlyStats.polUsed += amount;
+  } else if (action === "sell") {
+    hourlyStats.xinSold += amount;
+    hourlyStats.polGained += amount;
+  }
+}
+
+async function sendHourlyReport() {
+  const now = Date.now();
+  const elapsed = ((now - hourlyStats.start) / 1000 / 60).toFixed(1);
+
+  const msg = `📊 *XiBot Stats (${elapsed} min)*\n` +
+              `🟢 XIN achetés : ${ethers.formatEther(hourlyStats.xinBought)}\n` +
+              `🔴 XIN vendus : ${ethers.formatEther(hourlyStats.xinSold)}\n` +
+              `💰 POL utilisés : ${ethers.formatEther(hourlyStats.polUsed)}\n` +
+              `💸 POL gagnés : ${ethers.formatEther(hourlyStats.polGained)}`;
+
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(msg)}&parse_mode=Markdown`;
+
+  https.get(url, () => {});
+  resetHourlyStats();
+}
 let nextPump = Date.now() + 2 * 60 * 60 * 1000;
 let nextDump = Date.now() + 4 * 60 * 60 * 1000;
 
@@ -167,9 +210,11 @@ async function swap(tokenIn, tokenOut, amount, label) {
     if (label.includes("POL → XIN")) {
       stats.xinBought += amount;
       stats.polUsed += amount;
+      updateHourlyStats("buy", amount);
     } else {
       stats.xinSold += amount;
       stats.polGained += amount;
+      updateHourlyStats("sell", amount);
     }
 
     stats.swaps++;
@@ -269,6 +314,10 @@ async function loop() {
     if (!stats.lastHarvest || now - stats.lastHarvest >= 6 * 60 * 60 * 1000) {
       stats.lastHarvest = now;
       await harvestFees();
+    }
+
+    if (Date.now() - hourlyStats.start >= 60 * 60 * 1000) {
+      await sendHourlyReport();
     }
 
     await delay(60000);
