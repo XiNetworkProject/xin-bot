@@ -3,4 +3,4 @@ node_modules
 "xi-bot-a46b5-firebase-adminsdk-*.json" 
 xi-bot-a46b5-firebase-adminsdk-fbsvc-ff61e19670.json 
 .env.bot1
-.env.bot2
+.env.bot2".env" 
