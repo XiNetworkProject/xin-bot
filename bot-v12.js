@@ -1,4 +1,4 @@
-// ✅ XiBot v12 Firebase-compatible - stratégie intelligente de rendement XIN/POL
+// ✅ XiBot v12 Firebase-compatible - stratégie intelligente de rendement XIN/POL avec sécurité swap
 import dotenv from "dotenv";
 dotenv.config({ path: process.argv.find(f => f.includes(".env")) || ".env" });
 
@@ -115,6 +115,17 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       return;
     }
 
+    const balance = await (tokenIn === POL ? pol : xin).balanceOf(wallet.address);
+    if (balance < amountIn) {
+      log(`⛔ Swap annulé : balance insuffisante pour ${label}`);
+      return;
+    }
+
+    if (amountIn < parse("0.1")) {
+      log(`⚠️ Swap annulé : montant trop faible (${format(amountIn)}) pour ${label}`);
+      return;
+    }
+
     await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
 
     const quote = await quoter.quoteExactInputSingle([
@@ -153,10 +164,12 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       tokenIn: tokenIn,
       tokenOut: tokenOut,
       amount: format(amountIn),
-      priceEst: format(quote)
+      priceEst: format(quote),
+      amountOutMin: format(minReceived)
     });
   } catch (err) {
-    log(`❌ Erreur swap (${label}): ${err.message}`);
+    log(`❌ Erreur swap (${label}): ${err.message || err.reason || 'Erreur inconnue'}`);
+    console.error(err);
   }
 }
 
