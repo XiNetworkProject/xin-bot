@@ -14,4 +14,6 @@ services:
       - key: BOT_FILE
         value: bot-v12.js
       - key: ENV_FILE
-        value: .env.bot1 
+        value: .env.bot1
+      - key: PORT
+        value: 3000 
