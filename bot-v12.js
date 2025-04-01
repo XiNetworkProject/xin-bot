@@ -34,7 +34,8 @@ const TELEGRAM_TOKEN = process.env.TELEGRAM_TOKEN;
 const TELEGRAM_CHAT_ID = process.env.TELEGRAM_CHAT_ID;
 
 const routerAbi = [
-  "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
+  "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)",
+  "function exactInput(bytes calldata path, uint256 amountIn, uint256 amountOutMinimum, uint256 deadline) external payable returns (uint256)"
 ];
 const quoterAbi = [
   "function quoteExactInputSingle(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint160 sqrtPriceLimitX96) external view returns (uint256 amountOut)",
@@ -261,6 +262,19 @@ async function getLastPrice() {
   return (await ref.get()).val() || null;
 }
 
+// Fonction de retry pour les opérations blockchain
+async function retryOperation(operation, maxRetries = 3, delayMs = 5000) {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      return await operation();
+    } catch (err) {
+      if (i === maxRetries - 1) throw err;
+      log(`⚠️ Tentative ${i + 1}/${maxRetries} échouée: ${err.message}`);
+      await delay(delayMs);
+    }
+  }
+}
+
 async function swap(tokenIn, tokenOut, amountIn, label) {
   try {
     if (process.env.SIMULATION === "true") {
@@ -282,7 +296,9 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     }
 
     log(`🔐 Vérification des approbations pour ${label}`);
-    await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
+    await retryOperation(async () => {
+      await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
+    });
 
     log(`💹 Calcul du prix pour ${label}`);
     const path = ethers.solidityPacked(
@@ -290,10 +306,26 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       [tokenIn, 3000, tokenOut]
     );
     
-    const quote = await quoter.quoteExactInput(
-      path,
-      amountIn
-    );
+    let quote;
+    try {
+      quote = await retryOperation(async () => {
+        try {
+          return await quoter.quoteExactInput(path, amountIn);
+        } catch (err) {
+          log(`⚠️ Erreur quoteExactInput, tentative avec quoteExactInputSingle: ${err.message}`);
+          return await quoter.quoteExactInputSingle(
+            tokenIn,
+            tokenOut,
+            3000,
+            amountIn,
+            0
+          );
+        }
+      });
+    } catch (err) {
+      log(`❌ Échec du calcul du prix après plusieurs tentatives: ${err.message}`);
+      return;
+    }
 
     const minReceived = quote * 98n / 100n;
 
@@ -303,17 +335,42 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     }
 
     log(`📝 Exécution du swap ${label} avec slippage de 2%`);
-    const tx = await router.exactInputSingle([
-      tokenIn, tokenOut, 3000, wallet.address,
-      Math.floor(Date.now() / 1000) + 600, amountIn, minReceived, 0
-    ], {
-      gasLimit: 500000,
-      maxFeePerGas: ethers.parseUnits('50', 'gwei'),
-      maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
-    });
+    let tx;
+    try {
+      tx = await retryOperation(async () => {
+        try {
+          return await router.exactInput(
+            path,
+            amountIn,
+            minReceived,
+            Math.floor(Date.now() / 1000) + 600,
+            {
+              gasLimit: 500000,
+              maxFeePerGas: ethers.parseUnits('50', 'gwei'),
+              maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
+            }
+          );
+        } catch (err) {
+          log(`⚠️ Erreur exactInput, tentative avec exactInputSingle: ${err.message}`);
+          return await router.exactInputSingle([
+            tokenIn, tokenOut, 3000, wallet.address,
+            Math.floor(Date.now() / 1000) + 600, amountIn, minReceived, 0
+          ], {
+            gasLimit: 500000,
+            maxFeePerGas: ethers.parseUnits('50', 'gwei'),
+            maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
+          });
+        }
+      });
+    } catch (err) {
+      log(`❌ Échec du swap après plusieurs tentatives: ${err.message}`);
+      throw err;
+    }
 
     log(`⏳ Attente de la confirmation de la transaction...`);
-    await tx.wait();
+    await retryOperation(async () => {
+      await tx.wait();
+    });
     
     // Mise à jour des statistiques de trading
     const statsRef = db.ref(`/xibot/bots/${BOT_ID}/stats`);
