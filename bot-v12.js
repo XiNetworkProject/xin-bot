@@ -494,6 +494,25 @@ async function postGlobalStats() {
   sendTelegram(msg);
 }
 
+// Fonction pour obtenir le prix actuel avec gestion d'erreur
+async function getCurrentPrice() {
+  try {
+    const quotePOL = await quoter.quoteExactInputSingle([
+      POL, XIN, 3000, parse("1"), 0
+    ]);
+    return parseFloat(format(quotePOL));
+  } catch (err) {
+    log(`⚠️ Erreur lors du calcul du prix: ${err.message}`);
+    // En cas d'erreur, on utilise le dernier prix connu
+    const lastPrice = await getLastPrice();
+    if (lastPrice) {
+      log(`📊 Utilisation du dernier prix connu: ${lastPrice}`);
+      return lastPrice;
+    }
+    return 0;
+  }
+}
+
 async function loop() {
   log("🤖 XiBot v12 Firebase lancé avec stratégie de trading optimisée");
   let last30MinStats = Date.now();
@@ -508,138 +527,146 @@ async function loop() {
   let lastTradeDirection = null;
   
   while (true) {
-    const now = Date.now();
-    const strategy = (await db.ref("/xibot/strategy").get()).val() || {};
-    const { nextPump, nextDump, lastBot, marketPhase } = strategy;
-    const polBalance = await pol.balanceOf(wallet.address);
-    const xinBalance = await xin.balanceOf(wallet.address);
-    const statsRef = await db.ref(`/xibot/bots/${BOT_ID}/stats`).get();
-    const pnl = (statsRef.val()?.netProfit || 0);
+    try {
+      const now = Date.now();
+      const strategy = (await db.ref("/xibot/strategy").get()).val() || {};
+      const { nextPump, nextDump, lastBot, marketPhase } = strategy;
+      const polBalance = await pol.balanceOf(wallet.address);
+      const xinBalance = await xin.balanceOf(wallet.address);
+      const statsRef = await db.ref(`/xibot/bots/${BOT_ID}/stats`).get();
+      const pnl = (statsRef.val()?.netProfit || 0);
 
-    // Vérification de la liquidité
-    if (now - lastLiquidityCheck >= LIQUIDITY_CHECK_INTERVAL) {
-      const currentLiquidity = await checkLiquidity();
-      const poolLiquidity = await pool.liquidity();
-      
-      if (currentLiquidity < MIN_LIQUIDITY_THRESHOLD) {
-        const amountToAdd = MIN_LIQUIDITY_THRESHOLD - currentLiquidity;
-        if (polBalance >= amountToAdd && xinBalance >= amountToAdd) {
-          await addLiquidity(amountToAdd, amountToAdd);
-          log(`💧 Ajout de liquidité : ${format(amountToAdd)} POL pour atteindre le minimum de 20 POL`);
+      // Vérification de la liquidité
+      if (now - lastLiquidityCheck >= LIQUIDITY_CHECK_INTERVAL) {
+        const currentLiquidity = await checkLiquidity();
+        const poolLiquidity = await pool.liquidity();
+        
+        if (currentLiquidity < MIN_LIQUIDITY_THRESHOLD) {
+          const amountToAdd = MIN_LIQUIDITY_THRESHOLD - currentLiquidity;
+          if (polBalance >= amountToAdd && xinBalance >= amountToAdd) {
+            await addLiquidity(amountToAdd, amountToAdd);
+            log(`💧 Ajout de liquidité : ${format(amountToAdd)} POL pour atteindre le minimum de 20 POL`);
+          }
+        } else if (currentLiquidity > MAX_LIQUIDITY_THRESHOLD) {
+          const amountToRemove = currentLiquidity - MAX_LIQUIDITY_THRESHOLD;
+          await removeLiquidity(amountToRemove);
+          log(`💧 Retrait de liquidité : ${format(amountToRemove)} POL pour ne pas dépasser 250 POL`);
         }
-      } else if (currentLiquidity > MAX_LIQUIDITY_THRESHOLD) {
-        const amountToRemove = currentLiquidity - MAX_LIQUIDITY_THRESHOLD;
-        await removeLiquidity(amountToRemove);
-        log(`💧 Retrait de liquidité : ${format(amountToRemove)} POL pour ne pas dépasser 250 POL`);
+        
+        lastLiquidityCheck = now;
+      }
+
+      const currentPrice = await getCurrentPrice();
+      if (currentPrice === 0) {
+        log("⚠️ Prix non disponible, attente de la prochaine itération");
+        await delay(5000);
+        continue;
       }
       
-      lastLiquidityCheck = now;
-    }
+      priceHistory.push(currentPrice);
+      if (priceHistory.length > 14) priceHistory.shift();
+      
+      const rsi = await calculateRSI(priceHistory);
+      const dynamicAmount = getDynamicAmount(pnl, rsi);
+      const lastPrice = await getLastPrice();
+      const priceChange = lastPrice ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
 
-    const quotePOL = await quoter.quoteExactInputSingle([
-      POL, XIN, 3000, parse("1"), 0
-    ]);
-    const currentPrice = parseFloat(format(quotePOL));
-    
-    priceHistory.push(currentPrice);
-    if (priceHistory.length > 14) priceHistory.shift();
-    
-    const rsi = await calculateRSI(priceHistory);
-    const dynamicAmount = getDynamicAmount(pnl, rsi);
-    const lastPrice = await getLastPrice();
-    const priceChange = lastPrice ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
+      // Nouvelle logique de trading coordonnée
+      const timeSinceLastSwap = now - lastSwapTime;
+      const isTimeToSwap = timeSinceLastSwap >= SWAP_INTERVAL;
+      const isThisBotTurn = !lastBot || lastBot !== BOT_ID;
 
-    // Nouvelle logique de trading coordonnée
-    const timeSinceLastSwap = now - lastSwapTime;
-    const isTimeToSwap = timeSinceLastSwap >= SWAP_INTERVAL;
-    const isThisBotTurn = !lastBot || lastBot !== BOT_ID;
+      // Détermination de la phase de marché
+      let currentMarketPhase = marketPhase || "neutral";
+      if (priceChange >= PUMP_THRESHOLD) currentMarketPhase = "pump";
+      if (priceChange <= -DUMP_THRESHOLD) currentMarketPhase = "dump";
 
-    // Détermination de la phase de marché
-    let currentMarketPhase = marketPhase || "neutral";
-    if (priceChange >= PUMP_THRESHOLD) currentMarketPhase = "pump";
-    if (priceChange <= -DUMP_THRESHOLD) currentMarketPhase = "dump";
+      // Conditions de trading améliorées
+      const shouldBuy = isTimeToSwap && 
+        isThisBotTurn &&
+        polBalance >= MIN_BALANCE_FOR_SWAP &&
+        (
+          (currentMarketPhase === "dump" && rsi && rsi < RSI_OVERSOLD) ||
+          (currentMarketPhase === "neutral" && priceChange <= -PRICE_CHANGE_THRESHOLD) ||
+          (currentMarketPhase === "pump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES)
+        );
 
-    // Conditions de trading améliorées
-    const shouldBuy = isTimeToSwap && 
-      isThisBotTurn &&
-      polBalance >= MIN_BALANCE_FOR_SWAP &&
-      (
-        (currentMarketPhase === "dump" && rsi && rsi < RSI_OVERSOLD) ||
-        (currentMarketPhase === "neutral" && priceChange <= -PRICE_CHANGE_THRESHOLD) ||
-        (currentMarketPhase === "pump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES)
-      );
+      const shouldSell = isTimeToSwap && 
+        isThisBotTurn &&
+        xinBalance >= MIN_BALANCE_FOR_SWAP &&
+        (
+          (currentMarketPhase === "pump" && rsi && rsi > RSI_OVERBOUGHT) ||
+          (currentMarketPhase === "neutral" && priceChange >= PRICE_CHANGE_THRESHOLD) ||
+          (currentMarketPhase === "dump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES)
+        );
 
-    const shouldSell = isTimeToSwap && 
-      isThisBotTurn &&
-      xinBalance >= MIN_BALANCE_FOR_SWAP &&
-      (
-        (currentMarketPhase === "pump" && rsi && rsi > RSI_OVERBOUGHT) ||
-        (currentMarketPhase === "neutral" && priceChange >= PRICE_CHANGE_THRESHOLD) ||
-        (currentMarketPhase === "dump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES)
-      );
-
-    if (shouldBuy) {
-      sendTelegram(`📉 Opportunité d'achat détectée : prix XIN ↓ (${currentPrice} < ${lastPrice})${rsi ? `, RSI: ${rsi.toFixed(2)}` : ''}`);
-      await swap(POL, XIN, dynamicAmount, "POL → XIN (smart buy)");
-      lastEntryPrice = currentPrice;
-      lastSwapTime = now;
-      consecutiveTrades = lastTradeDirection === "buy" ? consecutiveTrades + 1 : 1;
-      lastTradeDirection = "buy";
-      await db.ref("/xibot/strategy/lastBot").set(BOT_ID);
-      await db.ref("/xibot/strategy/marketPhase").set(currentMarketPhase);
-    } else if (shouldSell) {
-      sendTelegram(`📈 Opportunité de vente détectée : prix XIN ↑ (${currentPrice} > ${lastPrice})${rsi ? `, RSI: ${rsi.toFixed(2)}` : ''}`);
-      await swap(XIN, POL, dynamicAmount, "XIN → POL (smart sell)");
-      lastEntryPrice = null;
-      lastSwapTime = now;
-      consecutiveTrades = lastTradeDirection === "sell" ? consecutiveTrades + 1 : 1;
-      lastTradeDirection = "sell";
-      await db.ref("/xibot/strategy/lastBot").set(BOT_ID);
-      await db.ref("/xibot/strategy/marketPhase").set(currentMarketPhase);
-    }
-
-    // Vérification des conditions de stop-loss et take-profit
-    if (lastEntryPrice) {
-      if (await checkStopLoss(lastEntryPrice, currentPrice)) {
-        log(`🛑 Stop-loss déclenché à ${currentPrice}`);
-        if (xinBalance > MIN_BALANCE_FOR_SWAP) {
-          await swap(XIN, POL, xinBalance, "XIN → POL (stop-loss)");
-        }
+      if (shouldBuy) {
+        sendTelegram(`📉 Opportunité d'achat détectée : prix XIN ↓ (${currentPrice} < ${lastPrice})${rsi ? `, RSI: ${rsi.toFixed(2)}` : ''}`);
+        await swap(POL, XIN, dynamicAmount, "POL → XIN (smart buy)");
+        lastEntryPrice = currentPrice;
+        lastSwapTime = now;
+        consecutiveTrades = lastTradeDirection === "buy" ? consecutiveTrades + 1 : 1;
+        lastTradeDirection = "buy";
+        await db.ref("/xibot/strategy/lastBot").set(BOT_ID);
+        await db.ref("/xibot/strategy/marketPhase").set(currentMarketPhase);
+      } else if (shouldSell) {
+        sendTelegram(`📈 Opportunité de vente détectée : prix XIN ↑ (${currentPrice} > ${lastPrice})${rsi ? `, RSI: ${rsi.toFixed(2)}` : ''}`);
+        await swap(XIN, POL, dynamicAmount, "XIN → POL (smart sell)");
         lastEntryPrice = null;
-        consecutiveTrades = 0;
-      } else if (await checkTakeProfit(lastEntryPrice, currentPrice)) {
-        log(`🎯 Take-profit atteint à ${currentPrice}`);
-        if (xinBalance > MIN_BALANCE_FOR_SWAP) {
-          await swap(XIN, POL, xinBalance, "XIN → POL (take-profit)");
-        }
-        lastEntryPrice = null;
-        consecutiveTrades = 0;
+        lastSwapTime = now;
+        consecutiveTrades = lastTradeDirection === "sell" ? consecutiveTrades + 1 : 1;
+        lastTradeDirection = "sell";
+        await db.ref("/xibot/strategy/lastBot").set(BOT_ID);
+        await db.ref("/xibot/strategy/marketPhase").set(currentMarketPhase);
       }
-    }
 
-    // Vérification des rapports périodiques
-    if (now - last30MinStats >= 30 * 60 * 1000) {
-      await postStats(currentPrice, "30Min");
-      last30MinStats = now;
-    }
-    
-    if (now - lastHourStats >= 60 * 60 * 1000) {
-      await postStats(currentPrice, "Hour");
-      lastHourStats = now;
-    }
-    
-    if (now - lastDayStats >= 24 * 60 * 60 * 1000) {
-      await postStats(currentPrice, "Day");
-      lastDayStats = now;
-    }
+      // Vérification des conditions de stop-loss et take-profit
+      if (lastEntryPrice) {
+        if (await checkStopLoss(lastEntryPrice, currentPrice)) {
+          log(`🛑 Stop-loss déclenché à ${currentPrice}`);
+          if (xinBalance > MIN_BALANCE_FOR_SWAP) {
+            await swap(XIN, POL, xinBalance, "XIN → POL (stop-loss)");
+          }
+          lastEntryPrice = null;
+          consecutiveTrades = 0;
+        } else if (await checkTakeProfit(lastEntryPrice, currentPrice)) {
+          log(`🎯 Take-profit atteint à ${currentPrice}`);
+          if (xinBalance > MIN_BALANCE_FOR_SWAP) {
+            await swap(XIN, POL, xinBalance, "XIN → POL (take-profit)");
+          }
+          lastEntryPrice = null;
+          consecutiveTrades = 0;
+        }
+      }
 
-    // État global toutes les 5 minutes
-    if (now - lastGlobalStats >= 5 * 60 * 1000) {
-      await postGlobalStats();
-      lastGlobalStats = now;
-    }
+      // Vérification des rapports périodiques
+      if (now - last30MinStats >= 30 * 60 * 1000) {
+        await postStats(currentPrice, "30Min");
+        last30MinStats = now;
+      }
+      
+      if (now - lastHourStats >= 60 * 60 * 1000) {
+        await postStats(currentPrice, "Hour");
+        lastHourStats = now;
+      }
+      
+      if (now - lastDayStats >= 24 * 60 * 60 * 1000) {
+        await postStats(currentPrice, "Day");
+        lastDayStats = now;
+      }
 
-    await delay(5000);
+      // État global toutes les 5 minutes
+      if (now - lastGlobalStats >= 5 * 60 * 1000) {
+        await postGlobalStats();
+        lastGlobalStats = now;
+      }
+
+      await delay(5000);
+    } catch (err) {
+      log(`❌ Erreur dans la boucle principale: ${err.message}`);
+      console.error(err);
+      await delay(5000);
+    }
   }
 }
 
