@@ -648,7 +648,8 @@ async function loop() {
         (
           (currentMarketPhase === "pump" && rsi && rsi > RSI_OVERBOUGHT) ||
           (currentMarketPhase === "neutral" && priceChange >= PRICE_CHANGE_THRESHOLD) ||
-          (currentMarketPhase === "dump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES)
+          (currentMarketPhase === "dump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES) ||
+          (rsi && rsi > 80)
         );
 
       if (shouldBuy) {
