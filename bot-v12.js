@@ -296,8 +296,12 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
 
     log(`🔄 Début du swap ${label} avec ${format(amountIn)}`);
 
-    // Vérification plus stricte des balances
-    const balance = await (tokenIn === POL ? pol : xin).balanceOf(wallet.address);
+    // Vérification plus stricte des balances avec retry
+    const [balance, allowance] = await Promise.all([
+      retryOperation(() => (tokenIn === POL ? pol : xin).balanceOf(wallet.address)),
+      retryOperation(() => (tokenIn === POL ? pol : xin).allowance(wallet.address, ROUTER))
+    ]);
+
     if (balance < amountIn) {
       log(`⛔ Swap annulé : balance insuffisante (${format(balance)} < ${format(amountIn)}) pour ${label}`);
       return;
@@ -308,14 +312,12 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       return;
     }
 
-    // Double vérification des approbations
-    log(`🔐 Vérification des approbations pour ${label}`);
-    const token = tokenIn === POL ? pol : xin;
-    const allowance = await token.allowance(wallet.address, ROUTER);
-    
+    // Vérification et mise à jour des approbations si nécessaire
     if (allowance < amountIn) {
       log(`🔄 Approbation nécessaire pour ${label}`);
-      const approveTx = await token.approve(ROUTER, ethers.MaxUint256);
+      const approveTx = await retryOperation(() => 
+        (tokenIn === POL ? pol : xin).approve(ROUTER, ethers.MaxUint256)
+      );
       await approveTx.wait();
       log(`✅ Approbation confirmée pour ${label}`);
     }
@@ -326,11 +328,22 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       [tokenIn, 3000, tokenOut]
     );
     
+    // Calcul du prix avec retry et validation
     let quote;
     try {
       quote = await retryOperation(async () => {
         try {
-          return await quoter.quoteExactInput(path, amountIn);
+          const exactInputQuote = await quoter.quoteExactInput(path, amountIn);
+          if (exactInputQuote > 0n) return exactInputQuote;
+          
+          log(`⚠️ Quote exactInput retourne 0, tentative avec quoteExactInputSingle`);
+          return await quoter.quoteExactInputSingle(
+            tokenIn,
+            tokenOut,
+            3000,
+            amountIn,
+            0
+          );
         } catch (err) {
           log(`⚠️ Erreur quoteExactInput, tentative avec quoteExactInputSingle: ${err.message}`);
           return await quoter.quoteExactInputSingle(
@@ -347,19 +360,20 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       return;
     }
 
-    const minReceived = quote * 98n / 100n;
-
-    if (minReceived <= 0n) {
-      log(`⚠️ Swap annulé : estimation trop faible (${format(minReceived)}) pour ${label}`);
+    if (quote <= 0n) {
+      log(`⚠️ Swap annulé : estimation invalide (${format(quote)}) pour ${label}`);
       return;
     }
+
+    const minReceived = quote * 98n / 100n; // 2% de slippage
 
     log(`📝 Exécution du swap ${label} avec slippage de 2%`);
     let tx;
     try {
       tx = await retryOperation(async () => {
         try {
-          return await router.exactInput(
+          // Tentative avec exactInput
+          const exactInputTx = await router.exactInput(
             path,
             amountIn,
             minReceived,
@@ -370,8 +384,10 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
               maxPriorityFeePerGas: ethers.parseUnits('25', 'gwei')
             }
           );
+          return exactInputTx;
         } catch (err) {
           log(`⚠️ Erreur exactInput, tentative avec exactInputSingle: ${err.message}`);
+          // Fallback avec exactInputSingle
           return await router.exactInputSingle([
             tokenIn, tokenOut, 3000, wallet.address,
             Math.floor(Date.now() / 1000) + 600, amountIn, minReceived, 0
@@ -393,7 +409,7 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     });
     
     if (!receipt || !receipt.status) {
-      throw new Error("Transaction échouée ou non confirmée");
+      throw new Error(`Transaction échouée ou non confirmée (status: ${receipt?.status})`);
     }
 
     log(`✅ Transaction confirmée : ${receipt.hash}`);
