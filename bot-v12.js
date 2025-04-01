@@ -126,7 +126,10 @@ function getRandomAmount(max) {
 
 // Fonction pour calculer le RSI
 async function calculateRSI(prices) {
-  if (prices.length < 14) return null;
+  if (prices.length < 14) {
+    log(`⚠️ Données insuffisantes pour le RSI (${prices.length}/14)`);
+    return null;
+  }
   
   let gains = 0;
   let losses = 0;
@@ -142,8 +145,17 @@ async function calculateRSI(prices) {
   
   const avgGain = gains / 14;
   const avgLoss = losses / 14;
+  
+  if (avgLoss === 0) {
+    log(`⚠️ RSI non calculable : pertes moyennes nulles`);
+    return null;
+  }
+  
   const rs = avgGain / avgLoss;
-  return 100 - (100 / (1 + rs));
+  const rsi = 100 - (100 / (1 + rs));
+  
+  log(`📊 RSI calculé : ${rsi.toFixed(2)} (gains: ${avgGain.toFixed(4)}, pertes: ${avgLoss.toFixed(4)})`);
+  return rsi;
 }
 
 // Fonction pour vérifier les conditions de stop-loss
@@ -284,6 +296,7 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
 
     log(`🔄 Début du swap ${label} avec ${format(amountIn)}`);
 
+    // Vérification plus stricte des balances
     const balance = await (tokenIn === POL ? pol : xin).balanceOf(wallet.address);
     if (balance < amountIn) {
       log(`⛔ Swap annulé : balance insuffisante (${format(balance)} < ${format(amountIn)}) pour ${label}`);
@@ -295,10 +308,17 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       return;
     }
 
+    // Double vérification des approbations
     log(`🔐 Vérification des approbations pour ${label}`);
-    await retryOperation(async () => {
-      await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
-    });
+    const token = tokenIn === POL ? pol : xin;
+    const allowance = await token.allowance(wallet.address, ROUTER);
+    
+    if (allowance < amountIn) {
+      log(`🔄 Approbation nécessaire pour ${label}`);
+      const approveTx = await token.approve(ROUTER, ethers.MaxUint256);
+      await approveTx.wait();
+      log(`✅ Approbation confirmée pour ${label}`);
+    }
 
     log(`💹 Calcul du prix pour ${label}`);
     const path = ethers.solidityPacked(
@@ -368,9 +388,15 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     }
 
     log(`⏳ Attente de la confirmation de la transaction...`);
-    await retryOperation(async () => {
-      await tx.wait();
+    const receipt = await retryOperation(async () => {
+      return await tx.wait();
     });
+    
+    if (!receipt || !receipt.status) {
+      throw new Error("Transaction échouée ou non confirmée");
+    }
+
+    log(`✅ Transaction confirmée : ${receipt.hash}`);
     
     // Mise à jour des statistiques de trading
     const statsRef = db.ref(`/xibot/bots/${BOT_ID}/stats`);
@@ -384,7 +410,7 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       await statsRef.child("takeProfitCount").set((stats.takeProfitCount || 0) + 1);
     }
     
-    log(`✅ Swap réussi : ${format(amountIn)} ${label} (gas: ${tx.gasUsed})`);
+    log(`✅ Swap réussi : ${format(amountIn)} ${label} (gas: ${receipt.gasUsed})`);
 
     if (label.includes("POL → XIN")) {
       await updateStats("polUsed", amountIn);
@@ -402,8 +428,9 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       amount: format(amountIn),
       priceEst: format(quote),
       amountOutMin: format(minReceived),
-      gasUsed: tx.gasUsed.toString(),
-      gasPrice: tx.gasPrice.toString()
+      gasUsed: receipt.gasUsed.toString(),
+      gasPrice: receipt.gasPrice.toString(),
+      txHash: receipt.hash
     });
   } catch (err) {
     // Mise à jour des statistiques d'échec
@@ -628,14 +655,20 @@ async function loop() {
   let lastSwapTime = Date.now();
   let consecutiveTrades = 0;
   let lastTradeDirection = null;
+  let lastPrice = null;
   
   while (true) {
     try {
       const now = Date.now();
       const strategy = (await db.ref("/xibot/strategy").get()).val() || {};
       const { nextPump, nextDump, lastBot, marketPhase } = strategy;
-      const polBalance = await pol.balanceOf(wallet.address);
-      const xinBalance = await xin.balanceOf(wallet.address);
+      
+      // Vérification des balances avec retry
+      const [polBalance, xinBalance] = await Promise.all([
+        retryOperation(() => pol.balanceOf(wallet.address)),
+        retryOperation(() => xin.balanceOf(wallet.address))
+      ]);
+      
       const statsRef = await db.ref(`/xibot/bots/${BOT_ID}/stats`).get();
       const pnl = (statsRef.val()?.netProfit || 0);
 
@@ -666,12 +699,15 @@ async function loop() {
         continue;
       }
       
-      priceHistory.push(currentPrice);
-      if (priceHistory.length > 14) priceHistory.shift();
+      // Mise à jour de l'historique des prix
+      if (currentPrice !== lastPrice) {
+        priceHistory.push(currentPrice);
+        if (priceHistory.length > 14) priceHistory.shift();
+        lastPrice = currentPrice;
+      }
       
       const rsi = await calculateRSI(priceHistory);
       const dynamicAmount = getDynamicAmount(pnl, rsi);
-      const lastPrice = await getLastPrice();
       const priceChange = lastPrice ? ((currentPrice - lastPrice) / lastPrice) * 100 : 0;
 
       // Nouvelle logique de trading coordonnée
@@ -693,7 +729,8 @@ async function loop() {
 • Variation prix : ${priceChange.toFixed(2)}%
 • Trades consécutifs : ${consecutiveTrades}/${MAX_CONSECUTIVE_TRADES}
 • Balance POL : ${format(polBalance)}
-• Balance XIN : ${format(xinBalance)}`);
+• Balance XIN : ${format(xinBalance)}
+• Dernier prix : ${lastPrice ? lastPrice.toFixed(4) : "N/A"}`);
 
       // Conditions de trading améliorées
       const shouldBuy = isTimeToSwap && 
