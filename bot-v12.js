@@ -12,7 +12,12 @@ console.log("🚀 XiBot v12 démarré");
 console.log("📦 Version:", process.env.BOT_VERSION || "v12");
 console.log("🤖 Bot ID:", process.env.BOT_ID || "bot1");
 
-const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
+// Configuration du provider avec les options nécessaires
+const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL, {
+  name: 'polygon',
+  chainId: 137
+});
+
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 const BOT_ID = process.env.BOT_ID || "bot1";
 
@@ -32,7 +37,7 @@ const routerAbi = [
   "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
 ];
 const quoterAbi = [
-  "function quoteExactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint160 sqrtPriceLimitX96)) external returns (uint256)"
+  "function quoteExactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint160 sqrtPriceLimitX96)) external view returns (uint256)"
 ];
 const erc20Abi = [
   "function approve(address spender, uint256 amount) external returns (bool)",
@@ -40,6 +45,7 @@ const erc20Abi = [
   "function balanceOf(address account) view returns (uint256)"
 ];
 
+// Création des contrats avec le bon signer
 const router = new ethers.Contract(ROUTER, routerAbi, wallet);
 const quoter = new ethers.Contract(QUOTER, quoterAbi, provider);
 const xin = new ethers.Contract(XIN, erc20Abi, wallet);
