@@ -268,9 +268,11 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       return;
     }
 
+    log(`🔄 Début du swap ${label} avec ${format(amountIn)}`);
+
     const balance = await (tokenIn === POL ? pol : xin).balanceOf(wallet.address);
     if (balance < amountIn) {
-      log(`⛔ Swap annulé : balance insuffisante pour ${label}`);
+      log(`⛔ Swap annulé : balance insuffisante (${format(balance)} < ${format(amountIn)}) pour ${label}`);
       return;
     }
 
@@ -279,8 +281,10 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       return;
     }
 
+    log(`🔐 Vérification des approbations pour ${label}`);
     await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
 
+    log(`💹 Calcul du prix pour ${label}`);
     const quote = await quoter.quoteExactInputSingle([
       tokenIn, tokenOut, 3000, amountIn, 0
     ]);
@@ -288,10 +292,11 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     const minReceived = quote * 98n / 100n;
 
     if (minReceived <= 0n) {
-      log(`⚠️ Swap annulé : estimation trop faible pour ${label}`);
+      log(`⚠️ Swap annulé : estimation trop faible (${format(minReceived)}) pour ${label}`);
       return;
     }
 
+    log(`📝 Exécution du swap ${label} avec slippage de 2%`);
     const tx = await router.exactInputSingle([
       tokenIn, tokenOut, 3000, wallet.address,
       Math.floor(Date.now() / 1000) + 600, amountIn, minReceived, 0
@@ -300,6 +305,8 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       maxFeePerGas: ethers.parseUnits('50', 'gwei'),
       maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
     });
+
+    log(`⏳ Attente de la confirmation de la transaction...`);
     await tx.wait();
     
     // Mise à jour des statistiques de trading
@@ -314,7 +321,7 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       await statsRef.child("takeProfitCount").set((stats.takeProfitCount || 0) + 1);
     }
     
-    log(`✅ Swap : ${format(amountIn)} ${label}`);
+    log(`✅ Swap réussi : ${format(amountIn)} ${label} (gas: ${tx.gasUsed})`);
 
     if (label.includes("POL → XIN")) {
       await updateStats("polUsed", amountIn);
@@ -342,6 +349,9 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     await statsRef.child("failedTrades").set((stats.failedTrades || 0) + 1);
     
     log(`❌ Erreur swap (${label}): ${err.message || err.reason || 'Erreur inconnue'}`);
+    if (err.transaction) {
+      log(`📝 Détails de la transaction: ${JSON.stringify(err.transaction, null, 2)}`);
+    }
     console.error(err);
   }
 }
