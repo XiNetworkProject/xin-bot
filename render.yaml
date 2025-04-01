@@ -10,4 +10,8 @@ services:
       - key: BOT_ID
         value: bot1
       - key: BOT_VERSION
-        value: v12 
+        value: v12
+      - key: BOT_FILE
+        value: bot-v12.js
+      - key: ENV_FILE
+        value: .env.bot1 

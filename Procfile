@@ -1,1 +1,1 @@
-web: node bot-v12.js 
+web: node $BOT_FILE $ENV_FILE 
