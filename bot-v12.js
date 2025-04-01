@@ -285,9 +285,15 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     await approveIfNeeded(tokenIn === POL ? pol : xin, label, ROUTER);
 
     log(`💹 Calcul du prix pour ${label}`);
-    const quote = await quoter.quoteExactInputSingle([
-      tokenIn, tokenOut, 3000, amountIn, 0
-    ]);
+    const path = ethers.solidityPacked(
+      ["address", "uint24", "address"],
+      [tokenIn, 3000, tokenOut]
+    );
+    
+    const quote = await quoter.quoteExactInput(
+      path,
+      amountIn
+    );
 
     const minReceived = quote * 98n / 100n;
 
