@@ -1,21 +1,26 @@
 {
-  "name": "xin-bot-v12",
-  "version": "1.2.1",
-  "description": "XiBot v12 - Firebase, vrais swaps, stratégie intelligente, quote Uniswap, PnL, Telegram alerts",
+  "name": "xibot-v12",
+  "version": "1.2.0",
+  "description": "Bot de trading automatisé pour la paire XIN/POL sur Polygon",
   "main": "bot-v12.js",
   "type": "module",
   "scripts": {
-    "start": "node bot-v12.js"
+    "start": "node bot-v12.js",
+    "bot1": "node bot-v12.js .env.bot1",
+    "bot2": "node bot-v12.js .env.bot2"
   },
-  "author": "XimaM",
-  "license": "MIT",
   "dependencies": {
-    "@uniswap/v3-periphery": "^1.4.4",
-    "axios": "^1.6.8",
-    "dotenv": "^16.4.7",
-    "ethers": "^6.13.5",
-    "express": "^4.18.2",
-    "firebase-admin": "^11.11.1",
-    "node-fetch": "^3.3.2"
-  }
+    "dotenv": "^16.3.1",
+    "ethers": "^6.7.1",
+    "firebase-admin": "^11.10.1"
+  },
+  "keywords": [
+    "trading",
+    "bot",
+    "uniswap",
+    "polygon",
+    "defi"
+  ],
+  "author": "",
+  "license": "MIT"
 }
