@@ -475,7 +475,7 @@ async function postGlobalStats() {
   );
   const currentPrice = parseFloat(format(quotePOL));
 
-  const msg = `🌐 État Global XiBot v12
+  let msg = `🌐 État Global XiBot v12
 ━━━━━━━━━━━━━━━━━━━━
 💰 Pool :
 • Prix XIN : ${currentPrice}
