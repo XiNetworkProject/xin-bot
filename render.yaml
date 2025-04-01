@@ -3,7 +3,9 @@ services:
     name: xibot-v12
     runtime: node
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node bot-v12.js
     envVars:
       - key: NODE_VERSION
-        value: 18.0.0 
+        value: 18.0.0
+      - key: BOT_ID
+        value: bot1 
