@@ -621,6 +621,17 @@ async function loop() {
       if (priceChange >= PUMP_THRESHOLD) currentMarketPhase = "pump";
       if (priceChange <= -DUMP_THRESHOLD) currentMarketPhase = "dump";
 
+      // Logs des conditions
+      log(`📊 État des conditions de swap :
+• Temps depuis dernier swap : ${Math.floor(timeSinceLastSwap/1000)}s (min: ${SWAP_INTERVAL/1000}s)
+• Tour du bot : ${isThisBotTurn ? "✅" : "⏳"}
+• Phase de marché : ${currentMarketPhase}
+• RSI : ${rsi ? rsi.toFixed(2) : "N/A"}
+• Variation prix : ${priceChange.toFixed(2)}%
+• Trades consécutifs : ${consecutiveTrades}/${MAX_CONSECUTIVE_TRADES}
+• Balance POL : ${format(polBalance)}
+• Balance XIN : ${format(xinBalance)}`);
+
       // Conditions de trading améliorées
       const shouldBuy = isTimeToSwap && 
         isThisBotTurn &&
