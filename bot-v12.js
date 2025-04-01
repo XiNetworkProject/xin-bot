@@ -37,7 +37,8 @@ const routerAbi = [
   "function exactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, address recipient, uint256 deadline, uint256 amountIn, uint256 amountOutMinimum, uint160 sqrtPriceLimitX96)) external payable returns (uint256)"
 ];
 const quoterAbi = [
-  "function quoteExactInputSingle(tuple(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint160 sqrtPriceLimitX96)) external view returns (uint256)"
+  "function quoteExactInputSingle(address tokenIn, address tokenOut, uint24 fee, uint256 amountIn, uint160 sqrtPriceLimitX96) external view returns (uint256 amountOut)",
+  "function quoteExactInput(bytes calldata path, uint256 amountIn) external view returns (uint256 amountOut)"
 ];
 const erc20Abi = [
   "function approve(address spender, uint256 amount) external returns (bool)",
@@ -504,13 +505,37 @@ async function getCurrentPrice() {
       • Fee: 3000
       • Amount In: ${format(parse("1"))} POL`);
 
-    const quotePOL = await quoter.quoteExactInputSingle([
-      POL, XIN, 3000, parse("1"), 0
-    ]);
-    
-    const price = parseFloat(format(quotePOL));
-    log(`✅ Prix calculé avec succès: ${price}`);
-    return price;
+    // Première tentative avec quoteExactInputSingle
+    try {
+      const quotePOL = await quoter.quoteExactInputSingle(
+        POL,
+        XIN,
+        3000,
+        parse("1"),
+        0
+      );
+      
+      const price = parseFloat(format(quotePOL));
+      log(`✅ Prix calculé avec succès via quoteExactInputSingle: ${price}`);
+      return price;
+    } catch (err) {
+      log(`⚠️ Échec de quoteExactInputSingle, tentative avec quoteExactInput...`);
+      
+      // Deuxième tentative avec quoteExactInput
+      const path = ethers.solidityPacked(
+        ["address", "uint24", "address"],
+        [POL, 3000, XIN]
+      );
+      
+      const quotePOL = await quoter.quoteExactInput(
+        path,
+        parse("1")
+      );
+      
+      const price = parseFloat(format(quotePOL));
+      log(`✅ Prix calculé avec succès via quoteExactInput: ${price}`);
+      return price;
+    }
   } catch (err) {
     log(`⚠️ Erreur détaillée lors du calcul du prix:
       • Message: ${err.message}
