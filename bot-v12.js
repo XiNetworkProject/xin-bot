@@ -398,16 +398,16 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
         } catch (err) {
           log(`⚠️ Erreur exactInput, tentative avec exactInputSingle: ${err.message}`);
           // Fallback avec exactInputSingle
-          const params = [
+          const params = {
             tokenIn,
             tokenOut,
-            3000,
-            wallet.address,
-            Math.floor(Date.now() / 1000) + 600,
+            fee: 3000,
+            recipient: wallet.address,
+            deadline: Math.floor(Date.now() / 1000) + 600,
             amountIn,
-            minReceived,
-            0
-          ];
+            amountOutMinimum: minReceived,
+            sqrtPriceLimitX96: 0
+          };
           
           return await router.exactInputSingle(params, {
             gasLimit: 500000,
