@@ -49,6 +49,8 @@ const RSI_OVERSOLD = 40;
 const RSI_OVERBOUGHT = 60;
 const PRICE_CHANGE_THRESHOLD = 0.15;
 const MAX_PRICE_CHANGE = 0.5; // 50% de variation maximale autorisée
+const MIN_SWAP_AMOUNT = 0.5;
+const MAX_SWAP_AMOUNT = 6;
 
 function parse(x) {
   return ethers.parseEther(x.toString());
@@ -69,6 +71,10 @@ function log(msg) {
 function sendTelegram(msg) {
   const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/sendMessage?chat_id=${TELEGRAM_CHAT_ID}&text=${encodeURIComponent(msg)}`;
   https.get(url, () => {});
+}
+
+function getRandomSwapAmount() {
+  return MIN_SWAP_AMOUNT + Math.random() * (MAX_SWAP_AMOUNT - MIN_SWAP_AMOUNT);
 }
 
 async function swap(tokenIn, tokenOut, amountIn, label) {
@@ -282,7 +288,8 @@ async function loop() {
         (!rsi || rsi > RSI_OVERBOUGHT);
 
       if (shouldBuy) {
-        await swap(POL, XIN, parse("0.5"), "POL → XIN");
+        const randomAmount = getRandomSwapAmount();
+        await swap(POL, XIN, parse(randomAmount.toFixed(2)), "POL → XIN");
         lastSwapTime = now;
         await db.ref("/xibot/strategy/lastBot").set(BOT_ID);
       } else if (shouldSell) {
