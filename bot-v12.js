@@ -7,6 +7,11 @@ import { db } from "./firebase.js";
 import https from "https";
 import http from "http";
 
+// Log de version
+console.log("🚀 XiBot v12 démarré");
+console.log("📦 Version:", process.env.BOT_VERSION || "v12");
+console.log("🤖 Bot ID:", process.env.BOT_ID || "bot1");
+
 const provider = new ethers.JsonRpcProvider(process.env.POLYGON_URL);
 const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
 const BOT_ID = process.env.BOT_ID || "bot1";
