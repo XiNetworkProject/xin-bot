@@ -463,7 +463,7 @@ async function postGlobalStats() {
 
   // Calcul de la liquidité actuelle
   const currentLiquidity = await checkLiquidity();
-  const liquidityPercentage = ((currentLiquidity - MIN_LIQUIDITY_THRESHOLD) / (MAX_LIQUIDITY_THRESHOLD - MIN_LIQUIDITY_THRESHOLD) * 100).toFixed(2);
+  const liquidityPercentage = ((Number(currentLiquidity) - Number(MIN_LIQUIDITY_THRESHOLD)) / (Number(MAX_LIQUIDITY_THRESHOLD) - Number(MIN_LIQUIDITY_THRESHOLD)) * 100).toFixed(2);
 
   // Calcul du prix actuel
   const quotePOL = await quoter.quoteExactInputSingle([
