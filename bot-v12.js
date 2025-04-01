@@ -366,8 +366,8 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
             Math.floor(Date.now() / 1000) + 600,
             {
               gasLimit: 500000,
-              maxFeePerGas: ethers.parseUnits('50', 'gwei'),
-              maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
+              maxFeePerGas: ethers.parseUnits('100', 'gwei'),
+              maxPriorityFeePerGas: ethers.parseUnits('25', 'gwei')
             }
           );
         } catch (err) {
@@ -377,8 +377,8 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
             Math.floor(Date.now() / 1000) + 600, amountIn, minReceived, 0
           ], {
             gasLimit: 500000,
-            maxFeePerGas: ethers.parseUnits('50', 'gwei'),
-            maxPriorityFeePerGas: ethers.parseUnits('2', 'gwei')
+            maxFeePerGas: ethers.parseUnits('100', 'gwei'),
+            maxPriorityFeePerGas: ethers.parseUnits('25', 'gwei')
           });
         }
       });
