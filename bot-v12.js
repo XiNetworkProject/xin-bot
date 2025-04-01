@@ -656,6 +656,7 @@ async function loop() {
   let consecutiveTrades = 0;
   let lastTradeDirection = null;
   let lastPrice = null;
+  let lastBalances = { pol: 0n, xin: 0n };
   
   while (true) {
     try {
@@ -663,11 +664,20 @@ async function loop() {
       const strategy = (await db.ref("/xibot/strategy").get()).val() || {};
       const { nextPump, nextDump, lastBot, marketPhase } = strategy;
       
-      // Vérification des balances avec retry
+      // Vérification des balances avec retry et validation
       const [polBalance, xinBalance] = await Promise.all([
         retryOperation(() => pol.balanceOf(wallet.address)),
         retryOperation(() => xin.balanceOf(wallet.address))
       ]);
+
+      // Validation des balances
+      if (lastBalances.pol !== 0n && Math.abs(Number(polBalance - lastBalances.pol)) > 10) {
+        log(`⚠️ Changement important de balance POL détecté : ${format(lastBalances.pol)} → ${format(polBalance)}`);
+      }
+      if (lastBalances.xin !== 0n && Math.abs(Number(xinBalance - lastBalances.xin)) > 1) {
+        log(`⚠️ Changement important de balance XIN détecté : ${format(lastBalances.xin)} → ${format(xinBalance)}`);
+      }
+      lastBalances = { pol: polBalance, xin: xinBalance };
       
       const statsRef = await db.ref(`/xibot/bots/${BOT_ID}/stats`).get();
       const pnl = (statsRef.val()?.netProfit || 0);
@@ -699,8 +709,11 @@ async function loop() {
         continue;
       }
       
-      // Mise à jour de l'historique des prix
+      // Mise à jour de l'historique des prix avec validation
       if (currentPrice !== lastPrice) {
+        if (lastPrice && Math.abs(currentPrice - lastPrice) > lastPrice * 0.1) {
+          log(`⚠️ Changement important de prix détecté : ${lastPrice} → ${currentPrice}`);
+        }
         priceHistory.push(currentPrice);
         if (priceHistory.length > 14) priceHistory.shift();
         lastPrice = currentPrice;
@@ -720,17 +733,18 @@ async function loop() {
       if (priceChange >= PUMP_THRESHOLD) currentMarketPhase = "pump";
       if (priceChange <= -DUMP_THRESHOLD) currentMarketPhase = "dump";
 
-      // Logs des conditions
+      // Logs des conditions avec plus de détails
       log(`📊 État des conditions de swap :
 • Temps depuis dernier swap : ${Math.floor(timeSinceLastSwap/1000)}s (min: ${SWAP_INTERVAL/1000}s)
 • Tour du bot : ${isThisBotTurn ? "✅" : "⏳"}
 • Phase de marché : ${currentMarketPhase}
-• RSI : ${rsi ? rsi.toFixed(2) : "N/A"}
+• RSI : ${rsi ? rsi.toFixed(2) : "N/A"} (${priceHistory.length}/14 données)
 • Variation prix : ${priceChange.toFixed(2)}%
 • Trades consécutifs : ${consecutiveTrades}/${MAX_CONSECUTIVE_TRADES}
 • Balance POL : ${format(polBalance)}
 • Balance XIN : ${format(xinBalance)}
-• Dernier prix : ${lastPrice ? lastPrice.toFixed(4) : "N/A"}`);
+• Dernier prix : ${lastPrice ? lastPrice.toFixed(4) : "N/A"}
+• Historique prix : ${priceHistory.length} points`);
 
       // Conditions de trading améliorées
       const shouldBuy = isTimeToSwap && 
