@@ -296,71 +296,30 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
 
     log(`🔄 Début du swap ${label} avec ${format(amountIn)}`);
 
-    // Vérification plus stricte des balances avec retry
-    const [balance, allowance] = await Promise.all([
-      retryOperation(() => (tokenIn === POL ? pol : xin).balanceOf(wallet.address)),
-      retryOperation(() => (tokenIn === POL ? pol : xin).allowance(wallet.address, ROUTER))
-    ]);
-
+    // Vérification des balances
+    const balance = await (tokenIn === POL ? pol : xin).balanceOf(wallet.address);
     if (balance < amountIn) {
       log(`⛔ Swap annulé : balance insuffisante (${format(balance)} < ${format(amountIn)}) pour ${label}`);
       return;
     }
 
-    if (amountIn < parse("0.1")) {
-      log(`⚠️ Swap annulé : montant trop faible (${format(amountIn)}) pour ${label}`);
-      return;
-    }
-
-    // Vérification et mise à jour des approbations si nécessaire
+    // Vérification de l'approbation
+    const allowance = await (tokenIn === POL ? pol : xin).allowance(wallet.address, ROUTER);
     if (allowance < amountIn) {
       log(`🔄 Approbation nécessaire pour ${label}`);
-      const approveTx = await retryOperation(() => 
-        (tokenIn === POL ? pol : xin).approve(ROUTER, ethers.MaxUint256)
-      );
+      const approveTx = await (tokenIn === POL ? pol : xin).approve(ROUTER, ethers.MaxUint256);
       await approveTx.wait();
       log(`✅ Approbation confirmée pour ${label}`);
     }
 
-    log(`💹 Calcul du prix pour ${label}`);
-    
-    // Calcul du prix avec retry et validation
-    let quote;
-    try {
-      quote = await retryOperation(async () => {
-        try {
-          // Encodage correct du chemin pour le swap
-          const path = ethers.solidityPacked(
-            ["address", "uint24", "address"],
-            [tokenIn, 3000, tokenOut]
-          );
-          
-          const exactInputQuote = await quoter.quoteExactInput(path, amountIn);
-          if (exactInputQuote > 0n) return exactInputQuote;
-          
-          log(`⚠️ Quote exactInput retourne 0, tentative avec quoteExactInputSingle`);
-          return await quoter.quoteExactInputSingle(
-            tokenIn,
-            tokenOut,
-            3000,
-            amountIn,
-            0
-          );
-        } catch (err) {
-          log(`⚠️ Erreur quoteExactInput, tentative avec quoteExactInputSingle: ${err.message}`);
-          return await quoter.quoteExactInputSingle(
-            tokenIn,
-            tokenOut,
-            3000,
-            amountIn,
-            0
-          );
-        }
-      });
-    } catch (err) {
-      log(`❌ Échec du calcul du prix après plusieurs tentatives: ${err.message}`);
-      return;
-    }
+    // Calcul du prix
+    const quote = await quoter.quoteExactInputSingle(
+      tokenIn,
+      tokenOut,
+      3000,
+      amountIn,
+      0
+    );
 
     if (quote <= 0n) {
       log(`⚠️ Swap annulé : estimation invalide (${format(quote)}) pour ${label}`);
@@ -369,62 +328,27 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
 
     const minReceived = quote * 98n / 100n; // 2% de slippage
 
+    // Exécution du swap
+    const params = {
+      tokenIn,
+      tokenOut,
+      fee: 3000,
+      recipient: wallet.address,
+      deadline: Math.floor(Date.now() / 1000) + 600,
+      amountIn,
+      amountOutMinimum: minReceived,
+      sqrtPriceLimitX96: 0
+    };
+
     log(`📝 Exécution du swap ${label} avec slippage de 2%`);
-    let tx;
-    try {
-      tx = await retryOperation(async () => {
-        try {
-          // Encodage correct des paramètres pour exactInput
-          const path = ethers.solidityPacked(
-            ["address", "uint24", "address"],
-            [tokenIn, 3000, tokenOut]
-          );
-          
-          const deadline = Math.floor(Date.now() / 1000) + 600;
-          
-          // Tentative avec exactInput
-          const exactInputTx = await router.exactInput(
-            path,
-            amountIn,
-            minReceived,
-            deadline,
-            {
-              gasLimit: 500000,
-              maxFeePerGas: ethers.parseUnits('100', 'gwei'),
-              maxPriorityFeePerGas: ethers.parseUnits('25', 'gwei')
-            }
-          );
-          return exactInputTx;
-        } catch (err) {
-          log(`⚠️ Erreur exactInput, tentative avec exactInputSingle: ${err.message}`);
-          // Fallback avec exactInputSingle
-          const params = {
-            tokenIn,
-            tokenOut,
-            fee: 3000,
-            recipient: wallet.address,
-            deadline: Math.floor(Date.now() / 1000) + 600,
-            amountIn,
-            amountOutMinimum: minReceived,
-            sqrtPriceLimitX96: 0
-          };
-          
-          return await router.exactInputSingle(params, {
-            gasLimit: 500000,
-            maxFeePerGas: ethers.parseUnits('100', 'gwei'),
-            maxPriorityFeePerGas: ethers.parseUnits('25', 'gwei')
-          });
-        }
-      });
-    } catch (err) {
-      log(`❌ Échec du swap après plusieurs tentatives: ${err.message}`);
-      throw err;
-    }
+    const tx = await router.exactInputSingle(params, {
+      gasLimit: 500000,
+      maxFeePerGas: ethers.parseUnits('100', 'gwei'),
+      maxPriorityFeePerGas: ethers.parseUnits('25', 'gwei')
+    });
 
     log(`⏳ Attente de la confirmation de la transaction...`);
-    const receipt = await retryOperation(async () => {
-      return await tx.wait();
-    });
+    const receipt = await tx.wait();
     
     if (!receipt || !receipt.status) {
       throw new Error(`Transaction échouée ou non confirmée (status: ${receipt?.status})`);
@@ -432,12 +356,11 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
 
     log(`✅ Transaction confirmée : ${receipt.hash}`);
     
-    // Mise à jour des statistiques de trading
+    // Mise à jour des statistiques
     const statsRef = db.ref(`/xibot/bots/${BOT_ID}/stats`);
     const stats = (await statsRef.get()).val() || {};
     await statsRef.child("successfulTrades").set((stats.successfulTrades || 0) + 1);
     
-    // Mise à jour des compteurs de stop-loss et take-profit
     if (label.includes("stop-loss")) {
       await statsRef.child("stopLossCount").set((stats.stopLossCount || 0) + 1);
     } else if (label.includes("take-profit")) {
@@ -467,7 +390,6 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
       txHash: receipt.hash
     });
   } catch (err) {
-    // Mise à jour des statistiques d'échec
     const statsRef = db.ref(`/xibot/bots/${BOT_ID}/stats`);
     const stats = (await statsRef.get()).val() || {};
     await statsRef.child("failedTrades").set((stats.failedTrades || 0) + 1);
