@@ -323,16 +323,18 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     }
 
     log(`💹 Calcul du prix pour ${label}`);
-    const path = ethers.solidityPacked(
-      ["address", "uint24", "address"],
-      [tokenIn, 3000, tokenOut]
-    );
     
     // Calcul du prix avec retry et validation
     let quote;
     try {
       quote = await retryOperation(async () => {
         try {
+          // Encodage correct du chemin pour le swap
+          const path = ethers.solidityPacked(
+            ["address", "uint24", "address"],
+            [tokenIn, 3000, tokenOut]
+          );
+          
           const exactInputQuote = await quoter.quoteExactInput(path, amountIn);
           if (exactInputQuote > 0n) return exactInputQuote;
           
@@ -372,12 +374,20 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
     try {
       tx = await retryOperation(async () => {
         try {
+          // Encodage correct des paramètres pour exactInput
+          const path = ethers.solidityPacked(
+            ["address", "uint24", "address"],
+            [tokenIn, 3000, tokenOut]
+          );
+          
+          const deadline = Math.floor(Date.now() / 1000) + 600;
+          
           // Tentative avec exactInput
           const exactInputTx = await router.exactInput(
             path,
             amountIn,
             minReceived,
-            Math.floor(Date.now() / 1000) + 600,
+            deadline,
             {
               gasLimit: 500000,
               maxFeePerGas: ethers.parseUnits('100', 'gwei'),
@@ -388,10 +398,18 @@ async function swap(tokenIn, tokenOut, amountIn, label) {
         } catch (err) {
           log(`⚠️ Erreur exactInput, tentative avec exactInputSingle: ${err.message}`);
           // Fallback avec exactInputSingle
-          return await router.exactInputSingle([
-            tokenIn, tokenOut, 3000, wallet.address,
-            Math.floor(Date.now() / 1000) + 600, amountIn, minReceived, 0
-          ], {
+          const params = [
+            tokenIn,
+            tokenOut,
+            3000,
+            wallet.address,
+            Math.floor(Date.now() / 1000) + 600,
+            amountIn,
+            minReceived,
+            0
+          ];
+          
+          return await router.exactInputSingle(params, {
             gasLimit: 500000,
             maxFeePerGas: ethers.parseUnits('100', 'gwei'),
             maxPriorityFeePerGas: ethers.parseUnits('25', 'gwei')
