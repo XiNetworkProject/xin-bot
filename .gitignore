@@ -1,5 +1,30 @@
+# Fichiers d'environnement
 .env
-node_modules
+.env.*
+!.env.example
+
+# Dépendances
+node_modules/
+package-lock.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# Fichiers système
+.DS_Store
+Thumbs.db
+
+# Fichiers IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Fichiers de build
+dist/
+build/
+
 "xi-bot-a46b5-firebase-adminsdk-*.json" 
 xi-bot-a46b5-firebase-adminsdk-fbsvc-ff61e19670.json 
 .env.bot1
