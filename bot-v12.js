@@ -497,18 +497,36 @@ async function postGlobalStats() {
 // Fonction pour obtenir le prix actuel avec gestion d'erreur
 async function getCurrentPrice() {
   try {
+    log("🔄 Tentative de calcul du prix actuel...");
+    log(`📝 Paramètres du quote:
+      • Token In: ${POL}
+      • Token Out: ${XIN}
+      • Fee: 3000
+      • Amount In: ${format(parse("1"))} POL`);
+
     const quotePOL = await quoter.quoteExactInputSingle([
       POL, XIN, 3000, parse("1"), 0
     ]);
-    return parseFloat(format(quotePOL));
+    
+    const price = parseFloat(format(quotePOL));
+    log(`✅ Prix calculé avec succès: ${price}`);
+    return price;
   } catch (err) {
-    log(`⚠️ Erreur lors du calcul du prix: ${err.message}`);
+    log(`⚠️ Erreur détaillée lors du calcul du prix:
+      • Message: ${err.message}
+      • Code: ${err.code}
+      • Action: ${err.action}
+      • Transaction: ${JSON.stringify(err.transaction, null, 2)}`);
+    
     // En cas d'erreur, on utilise le dernier prix connu
     const lastPrice = await getLastPrice();
     if (lastPrice) {
       log(`📊 Utilisation du dernier prix connu: ${lastPrice}`);
       return lastPrice;
     }
+    
+    // Si pas de dernier prix connu, on attend un peu plus longtemps
+    await delay(10000);
     return 0;
   }
 }
