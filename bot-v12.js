@@ -498,13 +498,6 @@ async function postGlobalStats() {
 // Fonction pour obtenir le prix actuel avec gestion d'erreur
 async function getCurrentPrice() {
   try {
-    log("🔄 Tentative de calcul du prix actuel...");
-    log(`📝 Paramètres du quote:
-      • Token In: ${POL}
-      • Token Out: ${XIN}
-      • Fee: 3000
-      • Amount In: ${format(parse("1"))} POL`);
-
     // Première tentative avec quoteExactInputSingle
     try {
       const quotePOL = await quoter.quoteExactInputSingle(
@@ -516,11 +509,8 @@ async function getCurrentPrice() {
       );
       
       const price = parseFloat(format(quotePOL));
-      log(`✅ Prix calculé avec succès via quoteExactInputSingle: ${price}`);
       return price;
     } catch (err) {
-      log(`⚠️ Échec de quoteExactInputSingle, tentative avec quoteExactInput...`);
-      
       // Deuxième tentative avec quoteExactInput
       const path = ethers.solidityPacked(
         ["address", "uint24", "address"],
@@ -532,21 +522,14 @@ async function getCurrentPrice() {
         parse("1")
       );
       
-      const price = parseFloat(format(quotePOL));
-      log(`✅ Prix calculé avec succès via quoteExactInput: ${price}`);
-      return price;
+      return parseFloat(format(quotePOL));
     }
   } catch (err) {
-    log(`⚠️ Erreur détaillée lors du calcul du prix:
-      • Message: ${err.message}
-      • Code: ${err.code}
-      • Action: ${err.action}
-      • Transaction: ${JSON.stringify(err.transaction, null, 2)}`);
+    log(`⚠️ Erreur lors du calcul du prix: ${err.message}`);
     
     // En cas d'erreur, on utilise le dernier prix connu
     const lastPrice = await getLastPrice();
     if (lastPrice) {
-      log(`📊 Utilisation du dernier prix connu: ${lastPrice}`);
       return lastPrice;
     }
     
