@@ -512,32 +512,32 @@ async function postGlobalStats() {
 // Fonction pour obtenir le prix actuel avec gestion d'erreur
 async function getCurrentPrice() {
   try {
-    // Première tentative avec quoteExactInputSingle
-    try {
-      const quotePOL = await quoter.quoteExactInputSingle(
-        POL,
-        XIN,
-        3000,
-        parse("1"),
-        0
-      );
-      
-      const price = parseFloat(format(quotePOL));
+    // Utiliser quoteExactInput avec le chemin encodé
+    const path = ethers.solidityPacked(
+      ["address", "uint24", "address"],
+      [POL, 3000, XIN]
+    );
+    
+    const quotePOL = await quoter.quoteExactInput(
+      path,
+      parse("1")
+    );
+    
+    const price = parseFloat(format(quotePOL));
+    if (price > 0) {
       return price;
-    } catch (err) {
-      // Deuxième tentative avec quoteExactInput
-      const path = ethers.solidityPacked(
-        ["address", "uint24", "address"],
-        [POL, 3000, XIN]
-      );
-      
-      const quotePOL = await quoter.quoteExactInput(
-        path,
-        parse("1")
-      );
-      
-      return parseFloat(format(quotePOL));
     }
+    
+    // Si le prix est 0, essayer avec quoteExactInputSingle
+    const quoteSingle = await quoter.quoteExactInputSingle(
+      POL,
+      XIN,
+      3000,
+      parse("1"),
+      0
+    );
+    
+    return parseFloat(format(quoteSingle));
   } catch (err) {
     log(`⚠️ Erreur lors du calcul du prix: ${err.message}`);
     
