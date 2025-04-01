@@ -466,9 +466,13 @@ async function postGlobalStats() {
   const liquidityPercentage = ((Number(currentLiquidity) - Number(MIN_LIQUIDITY_THRESHOLD)) / (Number(MAX_LIQUIDITY_THRESHOLD) - Number(MIN_LIQUIDITY_THRESHOLD)) * 100).toFixed(2);
 
   // Calcul du prix actuel
-  const quotePOL = await quoter.quoteExactInputSingle([
-    POL, XIN, 3000, parse("1"), 0
-  ]);
+  const quotePOL = await quoter.quoteExactInputSingle(
+    POL,
+    XIN,
+    3000,
+    parse("1"),
+    0
+  );
   const currentPrice = parseFloat(format(quotePOL));
 
   const msg = `🌐 État Global XiBot v12
