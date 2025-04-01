@@ -639,7 +639,8 @@ async function loop() {
         (
           (currentMarketPhase === "dump" && rsi && rsi < RSI_OVERSOLD) ||
           (currentMarketPhase === "neutral" && priceChange <= -PRICE_CHANGE_THRESHOLD) ||
-          (currentMarketPhase === "pump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES)
+          (currentMarketPhase === "pump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES) ||
+          (!rsi && priceChange <= -0.1)
         );
 
       const shouldSell = isTimeToSwap && 
@@ -649,7 +650,8 @@ async function loop() {
           (currentMarketPhase === "pump" && rsi && rsi > RSI_OVERBOUGHT) ||
           (currentMarketPhase === "neutral" && priceChange >= PRICE_CHANGE_THRESHOLD) ||
           (currentMarketPhase === "dump" && consecutiveTrades < MAX_CONSECUTIVE_TRADES) ||
-          (rsi && rsi > 80)
+          (rsi && rsi > 80) ||
+          (!rsi && priceChange >= 0.1)
         );
 
       if (shouldBuy) {
