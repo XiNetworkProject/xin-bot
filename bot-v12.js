@@ -43,11 +43,12 @@ const xin = new ethers.Contract(XIN, erc20Abi, wallet);
 const pol = new ethers.Contract(POL, erc20Abi, wallet);
 
 // Constantes simplifiées
-const SWAP_INTERVAL = 10 * 1000;
+const SWAP_INTERVAL = 30 * 1000; // Augmenté à 30 secondes
 const MIN_BALANCE_FOR_SWAP = parse("0.15");
 const RSI_OVERSOLD = 40;
 const RSI_OVERBOUGHT = 60;
 const PRICE_CHANGE_THRESHOLD = 0.15;
+const MAX_PRICE_CHANGE = 0.5; // 50% de variation maximale autorisée
 
 function parse(x) {
   return ethers.parseEther(x.toString());
@@ -186,7 +187,20 @@ async function getCurrentPrice() {
       parse("1"),
       0
     );
-    return parseFloat(format(quote));
+    const price = parseFloat(format(quote));
+    
+    // Vérification du dernier prix connu
+    const lastPriceRef = await db.ref(`/xibot/bots/${BOT_ID}/lastPrice`).get();
+    const lastPrice = lastPriceRef.val();
+    
+    if (lastPrice && Math.abs(price - lastPrice) > lastPrice * MAX_PRICE_CHANGE) {
+      log(`⚠️ Changement de prix suspect détecté : ${lastPrice} → ${price}`);
+      return lastPrice; // Utiliser le dernier prix connu si le changement est trop important
+    }
+    
+    // Sauvegarder le nouveau prix
+    await db.ref(`/xibot/bots/${BOT_ID}/lastPrice`).set(price);
+    return price;
   } catch (err) {
     log(`⚠️ Erreur lors du calcul du prix: ${err.message}`);
     return 0;
@@ -203,6 +217,11 @@ async function loop() {
     try {
       const now = Date.now();
       const timeSinceLastSwap = now - lastSwapTime;
+      
+      // Vérification du tour du bot
+      const lastBotRef = await db.ref("/xibot/strategy/lastBot").get();
+      const lastBot = lastBotRef.val();
+      const isThisBotTurn = !lastBot || lastBot !== BOT_ID;
       
       // Vérification des balances
       const [polBalance, xinBalance] = await Promise.all([
@@ -245,6 +264,7 @@ async function loop() {
       // Logs des conditions
       log(`📊 État :
 • Temps depuis dernier swap : ${Math.floor(timeSinceLastSwap/1000)}s
+• Tour du bot : ${isThisBotTurn ? "✅" : "⏳"}
 • RSI : ${rsi ? rsi.toFixed(2) : "N/A"} (${priceHistory.length}/14)
 • Balance POL : ${format(polBalance)}
 • Balance XIN : ${format(xinBalance)}
@@ -252,19 +272,23 @@ async function loop() {
 
       // Conditions de trading simplifiées
       const shouldBuy = timeSinceLastSwap >= SWAP_INTERVAL && 
+        isThisBotTurn &&
         polBalance >= MIN_BALANCE_FOR_SWAP &&
         (!rsi || rsi < RSI_OVERSOLD);
 
       const shouldSell = timeSinceLastSwap >= SWAP_INTERVAL && 
+        isThisBotTurn &&
         xinBalance >= MIN_BALANCE_FOR_SWAP &&
         (!rsi || rsi > RSI_OVERBOUGHT);
 
       if (shouldBuy) {
         await swap(POL, XIN, parse("0.5"), "POL → XIN");
         lastSwapTime = now;
+        await db.ref("/xibot/strategy/lastBot").set(BOT_ID);
       } else if (shouldSell) {
         await swap(XIN, POL, xinBalance, "XIN → POL");
         lastSwapTime = now;
+        await db.ref("/xibot/strategy/lastBot").set(BOT_ID);
       }
 
       await delay(5000);
