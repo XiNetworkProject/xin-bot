@@ -1,25 +1,29 @@
-# Fichiers d'environnement
+# Fichiers sensibles
 .env
 .env.*
 !.env.example
+.env.bot1
+.env.bot2
+xi-bot-*.json
+firebase-adminsdk-*.json
 
-# Dépendances
+# Dependencies
 node_modules/
 package-lock.json
 
 # Logs
 *.log
-npm-debug.log*
+logs/
+bot1.log
+bot2.log
 
-# Fichiers système
-.DS_Store
-Thumbs.db
-
-# Fichiers IDE
+# IDE
 .vscode/
 .idea/
-*.swp
-*.swo
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Fichiers de build
 dist/

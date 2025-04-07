@@ -1,19 +1,38 @@
 services:
   - type: web
-    name: xibot-v12
+    name: xin-bot1
     runtime: node
     buildCommand: npm install
-    startCommand: node bot-v12.js .env.bot1
+    startCommand: npm start
     envVars:
-      - key: NODE_VERSION
-        value: 18.0.0
+      - key: PORT
+        value: 3000
       - key: BOT_ID
         value: bot1
-      - key: BOT_VERSION
-        value: v12
-      - key: BOT_FILE
-        value: bot-v12.js
-      - key: ENV_FILE
-        value: .env.bot1
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /
+    autoDeploy: true
+    plan: free
+    scaling:
+      minInstances: 1
+      maxInstances: 1
+
+  - type: web
+    name: xin-bot2
+    runtime: node
+    buildCommand: npm install
+    startCommand: npm run start:bot2
+    envVars:
       - key: PORT
-        value: 3000 
+        value: 3001
+      - key: BOT_ID
+        value: bot2
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /
+    autoDeploy: true
+    plan: free
+    scaling:
+      minInstances: 1
+      maxInstances: 1 

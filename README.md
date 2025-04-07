@@ -1,4 +1,68 @@
-# 📈 XiBot v12 - Bot de Trading XIN/POL
+# 🤖 XiBot - Bot de Trading XIN/POL
+
+Bot de trading automatisé pour la paire XIN/POL sur Polygon, optimisé pour fonctionner 24/7 sur Render.
+
+## 🚀 Déploiement sur Render
+
+1. **Préparation**
+   - Créez un compte sur [Render](https://render.com)
+   - Forkez ce dépôt sur votre compte GitHub
+   - Créez un fichier `.env` basé sur `.env.example` avec vos configurations
+
+2. **Configuration Render**
+   - Connectez votre dépôt GitHub à Render
+   - Render détectera automatiquement le fichier `render.yaml`
+   - Deux services web seront créés (bot1 et bot2)
+
+3. **Variables d'Environnement**
+   - Configurez les variables d'environnement dans l'interface Render
+   - Les variables essentielles sont :
+     - `POLYGON_URL`
+     - `PRIVATE_KEY`
+     - `XIN_TOKEN`
+     - `POL_TOKEN`
+     - `TELEGRAM_TOKEN`
+     - `TELEGRAM_CHAT_ID`
+
+4. **Surveillance**
+   - Les bots redémarrent automatiquement en cas d'erreur
+   - Les logs sont disponibles dans l'interface Render
+   - Les alertes sont envoyées sur Telegram
+
+## 🔧 Configuration Locale
+
+```bash
+# Installation
+npm install
+
+# Démarrage du bot 1
+npm start
+
+# Démarrage du bot 2
+npm run start:bot2
+```
+
+## 📊 Fonctionnalités
+
+- 🤖 Trading automatisé 24/7
+- 🔄 Redémarrage automatique
+- 📈 Analyse technique avec RSI
+- 💧 Gestion de la liquidité
+- 📱 Notifications Telegram
+- 🛡️ Gestion des erreurs robuste
+
+## ⚠️ Sécurité
+
+- Ne partagez jamais vos clés privées
+- Utilisez des wallets dédiés
+- Surveillez régulièrement les logs
+- Configurez des alertes Telegram
+
+## 📝 Licence
+
+MIT
+
+# �� XiBot v12 - Bot de Trading XIN/POL
 
 Bot de trading automatisé pour la paire XIN/POL sur Polygon, utilisant une stratégie intelligente basée sur le RSI et la gestion de liquidité.
 

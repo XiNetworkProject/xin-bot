@@ -1,27 +1,20 @@
 {
-  "name": "xibot-v12",
-  "version": "1.2.0",
-  "description": "Bot de trading automatisé pour la paire XIN/POL sur Polygon",
-  "main": "bot-v12.js",
-  "type": "module",
+  "name": "xin-bot",
+  "version": "1.0.0",
+  "description": "Bot de trading automatique pour XIN/POL",
+  "main": "bot-v13.js",
   "scripts": {
-    "start": "node bot-v12.js",
-    "bot1": "node bot-v12.js .env.bot1",
-    "bot2": "node bot-v12.js .env.bot2",
-    "dev": "node bot-v12.js"
+    "start": "node bot-v13.js bot1",
+    "start:bot2": "node bot-v13.js bot2"
   },
   "dependencies": {
-    "dotenv": "^16.3.1",
-    "ethers": "^6.7.1",
-    "firebase-admin": "^11.10.1"
+    "dotenv": "^16.0.3",
+    "ethers": "^5.7.2",
+    "firebase": "^9.15.0",
+    "https": "^1.0.0",
+    "http": "^0.0.1-security"
   },
-  "keywords": [
-    "trading",
-    "bot",
-    "uniswap",
-    "polygon",
-    "defi"
-  ],
-  "author": "",
-  "license": "MIT"
+  "engines": {
+    "node": ">=16.0.0"
+  }
 }
