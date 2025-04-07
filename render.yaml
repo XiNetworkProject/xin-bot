@@ -3,7 +3,7 @@ services:
     name: xin-bot1
     runtime: node
     buildCommand: npm install
-    startCommand: npm start
+    startCommand: node bot-v13.js bot1
     envVars:
       - key: PORT
         value: 3000
@@ -22,7 +22,7 @@ services:
     name: xin-bot2
     runtime: node
     buildCommand: npm install
-    startCommand: npm run start:bot2
+    startCommand: node bot-v13.js bot2
     envVars:
       - key: PORT
         value: 3001
